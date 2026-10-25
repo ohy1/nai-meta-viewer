@@ -1,0 +1,1202 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="NovelAI · Stable Diffusion · ComfyUI 이미지의 프롬프트와 생성 설정을 긍정/부정/캐릭터별로 나눠 보여 주는 메타데이터 뷰어">
+<title>이미지 메타데이터 뷰어</title>
+<style>
+:root {
+  --bg: #f5f6f8; --panel: #ffffff; --panel2: #f0f2f5; --text: #1b1f24; --muted: #5f6b7a; --border: #dde1e6;
+  --accent: #4f6bed; --accent-soft: #e8ecfd;
+  --pos: #1f8a5b; --pos-soft: #e6f5ee; --neg: #c2410c; --neg-soft: #fdefe7;
+  --hw: #b45309; --hb: #4f6bed; --up-soft: #e8ecfd; --down-soft: #eef0f3;
+  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 14px rgba(0,0,0,.04);
+  --checker: #e9ebee;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14161a; --panel: #1c1f25; --panel2: #23272e; --text: #e6e8eb; --muted: #9aa4b1; --border: #2e333b;
+    --accent: #8197ff; --accent-soft: #252c47;
+    --pos: #4cc38a; --pos-soft: #1b2e25; --neg: #f08a5d; --neg-soft: #33231b;
+    --hw: #f5b45a; --hb: #8fa2ff; --up-soft: #252c47; --down-soft: #262a31;
+    --shadow: none; --checker: #262a31;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14161a; --panel: #1c1f25; --panel2: #23272e; --text: #e6e8eb; --muted: #9aa4b1; --border: #2e333b;
+  --accent: #8197ff; --accent-soft: #252c47;
+  --pos: #4cc38a; --pos-soft: #1b2e25; --neg: #f08a5d; --neg-soft: #33231b;
+  --hw: #f5b45a; --hb: #8fa2ff; --up-soft: #252c47; --down-soft: #262a31;
+  --shadow: none; --checker: #262a31;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 14px/1.6 system-ui, -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  min-height: 100vh;
+}
+button { font: inherit; color: inherit; }
+.mono, pre, .ptext { font-family: ui-monospace, "Cascadia Code", Consolas, "D2Coding", monospace; }
+
+header {
+  position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 12px;
+  padding: 10px 20px; background: var(--panel); border-bottom: 1px solid var(--border);
+}
+header h1 { font-size: 16px; margin: 0; font-weight: 700; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.btn {
+  border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 6px 12px; cursor: pointer;
+  white-space: nowrap; transition: background .15s, border-color .15s;
+}
+.btn:hover { background: var(--panel2); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.sm { padding: 2px 10px; font-size: 12px; border-radius: 6px; }
+.btn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+
+:root { --thumb: 64px; }
+#stripWrap { display: none; background: var(--panel); border-bottom: 1px solid var(--border); }
+#stripWrap.show { display: block; }
+#strip { display: flex; gap: 8px; padding: 10px 20px 4px; overflow-x: auto; scroll-behavior: smooth; }
+.thumb {
+  position: relative; flex: 0 0 auto; height: var(--thumb); min-width: calc(var(--thumb) * .5); border-radius: 8px; overflow: hidden; cursor: pointer;
+  border: 2px solid transparent; background: var(--checker); padding: 0;
+}
+.thumb img { height: 100%; width: auto; max-width: calc(var(--thumb) * 2); object-fit: cover; display: block; }
+.thumb.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.thumb .tb, .thumb .no { position: absolute; font-size: 10px; line-height: 1; padding: 3px 4px; border-radius: 4px; background: rgba(0,0,0,.65); color: #fff; }
+.thumb .tb { left: 3px; bottom: 3px; }
+.thumb .no { right: 3px; top: 3px; }
+.thumb.active .no { background: var(--accent); }
+#stripHandle {
+  position: relative; height: 14px; cursor: ns-resize; touch-action: none; user-select: none;
+  display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--muted); font-size: 10.5px;
+}
+#stripHandle::before { content: ""; width: 44px; height: 4px; border-radius: 2px; background: var(--border); transition: background .15s; }
+#stripHandle:hover::before, #stripHandle.dragging::before { background: var(--accent); }
+#stripHandle span { position: absolute; right: 20px; opacity: 0; transition: opacity .15s; }
+#stripHandle:hover span, #stripHandle.dragging span { opacity: 1; }
+
+main { max-width: 1400px; margin: 0 auto; padding: 20px; }
+.foot { max-width: 1400px; margin: 0 auto; padding: 4px 20px 28px; color: var(--muted); font-size: 12px; text-align: center; }
+.foot a { color: inherit; }
+.foot a:hover { color: var(--accent); }
+.drop {
+  border: 2px dashed var(--border); border-radius: 16px; padding: 64px 24px; text-align: center; cursor: pointer;
+  background: var(--panel); transition: border-color .15s, background .15s;
+}
+.drop:hover { border-color: var(--accent); background: var(--accent-soft); }
+.drop h2 { margin: 0 0 8px; font-size: 18px; }
+.drop p { margin: 4px 0; color: var(--muted); }
+.drop .formats { margin-top: 16px; font-size: 12px; }
+
+#overlay {
+  position: fixed; inset: 0; z-index: 50; display: none; align-items: center; justify-content: center;
+  background: rgba(79,107,237,.18); backdrop-filter: blur(2px);
+}
+#overlay.show { display: flex; }
+#overlay div { background: var(--panel); border: 2px dashed var(--accent); border-radius: 16px; padding: 32px 48px; font-size: 18px; font-weight: 600; }
+
+.layout { display: grid; grid-template-columns: minmax(260px, 400px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.preview { position: sticky; top: 76px; }
+.preview .imgbox {
+  background-color: var(--checker);
+  background-image: linear-gradient(45deg, var(--panel2) 25%, transparent 25%, transparent 75%, var(--panel2) 75%),
+                    linear-gradient(45deg, var(--panel2) 25%, transparent 25%, transparent 75%, var(--panel2) 75%);
+  background-size: 16px 16px; background-position: 0 0, 8px 8px;
+  border-radius: 12px; overflow: hidden; border: 1px solid var(--border);
+}
+.preview img { display: block; width: 100%; max-height: 70vh; object-fit: contain; cursor: zoom-in; }
+.fileinfo { margin-top: 10px; font-size: 12px; color: var(--muted); word-break: break-all; }
+.fileinfo b { color: var(--text); font-size: 13px; display: block; margin-bottom: 2px; }
+
+.stack { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--panel2); border: 1px solid var(--border); }
+.badge.gen { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.badge.none { color: var(--muted); }
+.toolbar { margin-left: auto; display: flex; gap: 6px; }
+
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
+.card-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.card-head h3 { margin: 0; font-size: 14px; font-weight: 700; }
+.card-head .count { color: var(--muted); font-size: 12px; margin-left: auto; }
+.card-head .count + .btn { margin-left: 0; }
+.card-body { padding: 12px 14px; }
+.prompt.pos { border-left: 4px solid var(--pos); }
+.prompt.pos .card-head h3 { color: var(--pos); }
+.prompt.neg { border-left: 4px solid var(--neg); }
+.prompt.neg .card-head h3 { color: var(--neg); }
+.ptext { white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.7; padding: 12px 14px; }
+.hw { color: var(--hw); font-weight: 700; }
+.hb { color: var(--hb); font-weight: 700; }
+.empty-note { color: var(--muted); padding: 10px 14px; margin: 0; font-size: 13px; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 14px; }
+.chip {
+  font-size: 12.5px; padding: 2px 9px; border-radius: 6px; background: var(--panel2); border: 1px solid var(--border);
+  cursor: pointer; word-break: break-word; text-align: left;
+}
+.chip:hover { border-color: var(--accent); }
+.chip.up { background: var(--up-soft); border-color: transparent; }
+.chip.down { background: var(--down-soft); color: var(--muted); border-style: dashed; }
+.chip.minus { background: var(--neg-soft); border-color: var(--neg); border-style: dashed; }
+/* 여러 태그를 묶는 가중치 그룹: 3::태그1, 태그2:: / {{태그1, 태그2}} */
+.grp {
+  display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: 100%;
+  padding: 4px 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel2);
+}
+.grp.up { background: var(--up-soft); border-color: var(--hb); }
+.grp.down { background: var(--down-soft); border-style: dashed; }
+.grp.minus { background: var(--neg-soft); border-color: var(--neg); border-style: dashed; }
+.grp .chip { background: var(--panel); }
+.glabel {
+  border: 0; background: none; padding: 0 2px; cursor: pointer; font: 700 12px/1.6 ui-monospace, Consolas, monospace; color: var(--hw);
+}
+.grp.minus > .glabel { color: var(--neg); }
+.glabel:hover { text-decoration: underline; }
+.rw { border-radius: 4px; padding: 1px 0; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.rw.up { background: var(--up-soft); }
+.rw.down { background: var(--down-soft); }
+.rw.minus { background: var(--neg-soft); }
+
+.sel { border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 8px; padding: 6px 8px; font: inherit; cursor: pointer; }
+
+/* 확대 보기 */
+#viewer { position: fixed; inset: 0; z-index: 40; background: #0e1014; color: #e6e8eb; display: flex; flex-direction: column; }
+#viewer[hidden] { display: none; }
+.vbar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; background: rgba(0,0,0,.4); flex-wrap: wrap; }
+.vbar .name { flex: 1; min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vbar .zoom { font: 12px ui-monospace, Consolas, monospace; min-width: 52px; text-align: right; opacity: .8; }
+.vbtn { border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.06); color: #e6e8eb; border-radius: 6px; padding: 3px 10px; cursor: pointer; font-size: 13px; }
+.vbtn:hover { background: rgba(255,255,255,.16); }
+#vStage { position: relative; flex: 1; overflow: hidden; cursor: grab; touch-action: none; }
+#vStage.drag { cursor: grabbing; }
+#vImg { position: absolute; left: 0; top: 0; transform-origin: 0 0; user-select: none; -webkit-user-drag: none; max-width: none; }
+#vImg.px { image-rendering: pixelated; }
+.vnav {
+  position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 72px; border: 0; border-radius: 8px;
+  background: rgba(0,0,0,.35); color: #fff; font-size: 28px; cursor: pointer; z-index: 1;
+}
+.vnav:hover { background: rgba(0,0,0,.6); }
+.vnav.prev { left: 10px; } .vnav.next { right: 10px; }
+.vnav[disabled] { opacity: .2; cursor: default; }
+.vhint { padding: 6px 12px; font-size: 11.5px; opacity: .6; text-align: center; }
+
+.chars-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.chars-head h2 { margin: 0; font-size: 15px; }
+.chars-head .meta { color: var(--muted); font-size: 12px; }
+.char { border-left: 4px solid var(--cc); }
+.char .card-head h3 { color: var(--cc); }
+.char .sub { border-top: 1px solid var(--border); }
+.char .sub:first-of-type { border-top: 0; }
+.char .sublabel { display: flex; align-items: center; gap: 8px; padding: 8px 14px 0; font-size: 12px; font-weight: 700; }
+.char .sublabel.p { color: var(--pos); }
+.char .sublabel.n { color: var(--neg); }
+.char .sublabel .btn { margin-left: auto; font-weight: 400; color: var(--text); }
+.char .ptext, .char .chips { padding-top: 6px; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--cc); }
+
+.pos-grid {
+  position: relative; flex: 0 0 auto; width: 40px; height: 40px; border: 1px solid var(--border); border-radius: 4px;
+  background-color: var(--panel2);
+  background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 20% 20%;
+}
+.pos-grid.lg { width: 88px; height: 88px; border-radius: 6px; }
+.pos-grid i {
+  position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; border: 1.5px solid var(--panel);
+  font-style: normal; font-size: 9px; line-height: 1; color: #fff; display: flex; align-items: center; justify-content: center;
+}
+.pos-grid.lg i { width: 16px; height: 16px; margin: -8px 0 0 -8px; font-weight: 700; }
+.poslabel { font-size: 12px; color: var(--muted); }
+
+.kvgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1px; background: var(--border); }
+.kv { background: var(--panel); padding: 8px 14px; cursor: pointer; min-width: 0; border: 0; text-align: left; }
+.kv:hover { background: var(--panel2); }
+.kv .k { display: block; font-size: 11.5px; color: var(--muted); }
+.kv .v { display: block; font-weight: 600; word-break: break-word; }
+
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th, td { text-align: left; vertical-align: top; padding: 6px 14px; border-top: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 500; white-space: nowrap; width: 1%; }
+td { word-break: break-word; }
+td.mono { font-size: 12px; white-space: pre-wrap; }
+tr:first-child th, tr:first-child td { border-top: 0; }
+
+details.card > summary { cursor: pointer; padding: 10px 14px; font-weight: 700; list-style: none; display: flex; align-items: center; gap: 8px; }
+details.card > summary::-webkit-details-marker { display: none; }
+details.card > summary::before { content: "▸"; color: var(--muted); transition: transform .15s; }
+details.card[open] > summary::before { transform: rotate(90deg); }
+details.card[open] > summary { border-bottom: 1px solid var(--border); }
+details.card > summary .hint { font-weight: 400; color: var(--muted); font-size: 12px; }
+.raw-item + .raw-item { border-top: 1px solid var(--border); }
+.raw-head { display: flex; align-items: center; gap: 8px; padding: 8px 14px 0; flex-wrap: wrap; }
+.raw-head b { font-size: 13px; }
+.raw-head .tag { font-size: 11px; color: var(--muted); background: var(--panel2); padding: 1px 6px; border-radius: 4px; }
+.raw-head .btn { margin-left: auto; }
+pre { margin: 0; padding: 8px 14px 12px; font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 420px; overflow: auto; }
+.section-title { font-size: 12px; font-weight: 700; color: var(--muted); padding: 10px 14px 4px; text-transform: uppercase; letter-spacing: .04em; }
+
+.notice { padding: 14px; border-radius: 12px; background: var(--panel); border: 1px solid var(--border); color: var(--muted); }
+.notice b { color: var(--text); }
+.notice ul { margin: 6px 0 0; padding-left: 18px; }
+.err { color: var(--neg); font-size: 12px; }
+
+#toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none;
+  background: var(--text); color: var(--bg); padding: 8px 16px; border-radius: 8px; font-size: 13px; transition: .2s; z-index: 60;
+}
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+.loading { padding: 40px; text-align: center; color: var(--muted); }
+
+@media (max-width: 860px) {
+  .layout { grid-template-columns: 1fr; }
+  .preview { position: static; }
+  .preview img { max-height: 50vh; }
+}
+@media (max-width: 520px) {
+  header { position: static; padding: 10px 16px; flex-wrap: wrap; }
+  header h1 { flex-basis: 100%; }
+  main { padding: 16px; }
+  #strip { padding: 10px 16px 4px; }
+  #stripHandle span { display: none; }
+  .hide-sm { display: none; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>🖼️ 이미지 메타데이터 뷰어</h1>
+  <button class="btn" id="btnTags" aria-pressed="false" title="프롬프트를 태그 단위로 보기">태그 보기</button>
+  <button class="btn" id="btnTheme" title="테마 전환">🌓</button>
+  <select class="sel" id="sortSel" hidden title="이미지 정렬 순서">
+    <option value="name-asc">이름순 (1 → 9)</option>
+    <option value="name-desc">이름 역순 (9 → 1)</option>
+    <option value="date-asc">날짜순 (오래된 것부터)</option>
+    <option value="date-desc">날짜순 (최신 것부터)</option>
+  </select>
+  <button class="btn" id="btnClear" hidden>모두 지우기</button>
+  <button class="btn primary" id="btnOpen">이미지 열기</button>
+  <input type="file" id="fileInput" accept="image/*,.png,.jpg,.jpeg,.webp" multiple hidden>
+</header>
+<div id="stripWrap">
+  <div id="strip"></div>
+  <div id="stripHandle" title="아래로 끌어 썸네일 크기 조절 · 더블클릭하면 원래 크기"><span>끌어서 크기 조절 · ← → 로 이미지 이동</span></div>
+</div>
+<main id="main"></main>
+<footer class="foot">
+  <a href="https://github.com/ohy1/nai-meta-viewer" target="_blank" rel="noopener">nai-meta-viewer</a> · MIT License ·
+  Claude(Anthropic)를 이용해 만들었습니다 · NovelAI와 관련 없는 비공식 도구입니다
+</footer>
+<div id="overlay"><div>여기에 놓으세요</div></div>
+<div id="viewer" hidden>
+  <div class="vbar">
+    <span class="name" id="vName"></span>
+    <span class="zoom" id="vZoom">100%</span>
+    <button class="vbtn" data-v="out" title="축소 (-)">−</button>
+    <button class="vbtn" data-v="fit" title="화면에 맞춤 (0)">맞춤</button>
+    <button class="vbtn" data-v="one" title="원본 크기 (1)">1:1</button>
+    <button class="vbtn" data-v="in" title="확대 (+)">+</button>
+    <button class="vbtn" data-v="close" title="닫기 (Esc)">✕</button>
+  </div>
+  <div id="vStage">
+    <img id="vImg" alt="" draggable="false">
+    <button class="vnav prev" data-v="prev" title="이전 (←)">‹</button>
+    <button class="vnav next" data-v="next" title="다음 (→)">›</button>
+  </div>
+  <div class="vhint">휠: 확대/축소 · 끌기: 이동 · 더블클릭: 맞춤 ↔ 원본 · ← →: 이전/다음 · Esc: 닫기</div>
+</div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+/* ---------- 유틸 ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const utf8 = (u8, fatal = false) => new TextDecoder('utf-8', { fatal }).decode(u8);
+const latin1 = u8 => { let s = ''; for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]); return s; };
+const smartText = u8 => { try { return utf8(u8, true); } catch { return latin1(u8); } };
+const ascii = (u8, p, n) => latin1(u8.subarray(p, p + n));
+const fmtBytes = n => n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(2) + ' MB';
+const tryJSON = s => { if (typeof s !== 'string') return null; const t = s.trim(); if (!/^[{[]/.test(t)) return null; try { return JSON.parse(t); } catch { return null; } };
+const pretty = s => { const j = tryJSON(s); return j ? JSON.stringify(j, null, 2) : s; };
+
+async function inflate(u8, format) {
+  const stream = new Blob([u8]).stream().pipeThrough(new DecompressionStream(format));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+/* 복사 버튼에 연결할 텍스트를 렌더링마다 모아 둠 */
+let clips = [];
+const clip = text => { clips.push(String(text ?? '')); return clips.length - 1; };
+
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove('show'), 1400);
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+  }
+  toast('복사했습니다');
+}
+
+/* ---------- PNG ---------- */
+async function parsePNG(u8, res) {
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  let p = 8;
+  while (p + 12 <= u8.length) {
+    const len = dv.getUint32(p), type = ascii(u8, p + 4, 4);
+    const data = u8.subarray(p + 8, p + 8 + len);
+    res.chunks.push(type);
+    try {
+      if (type === 'tEXt') {
+        const z = data.indexOf(0);
+        res.texts.push({ key: latin1(data.subarray(0, z)), text: smartText(data.subarray(z + 1)), chunk: 'tEXt' });
+      } else if (type === 'zTXt') {
+        const z = data.indexOf(0);
+        res.texts.push({ key: latin1(data.subarray(0, z)), text: smartText(await inflate(data.subarray(z + 2), 'deflate')), chunk: 'zTXt' });
+      } else if (type === 'iTXt') {
+        const z = data.indexOf(0);
+        const key = latin1(data.subarray(0, z));
+        const compressed = data[z + 1];
+        let q = z + 3;
+        const langEnd = data.indexOf(0, q); q = langEnd + 1;
+        const transEnd = data.indexOf(0, q); q = transEnd + 1;
+        let body = data.subarray(q);
+        if (compressed) body = await inflate(body, 'deflate');
+        res.texts.push({ key, text: utf8(body), chunk: 'iTXt' });
+      } else if (type === 'eXIf') {
+        res.exif = parseTIFF(data);
+      } else if (type === 'IEND') break;
+    } catch (e) { res.errors.push(`${type} 청크 해석 실패: ${e.message}`); }
+    p += 12 + len;
+  }
+}
+
+/* ---------- JPEG ---------- */
+function parseJPEG(u8, res) {
+  let p = 2;
+  while (p + 4 <= u8.length) {
+    if (u8[p] !== 0xFF) { p++; continue; }
+    const m = u8[p + 1];
+    if (m === 0xFF) { p++; continue; }
+    if (m === 0xD8 || m === 0x01 || (m >= 0xD0 && m <= 0xD7)) { p += 2; continue; }
+    if (m === 0xDA || m === 0xD9) break;
+    const L = (u8[p + 2] << 8) | u8[p + 3];
+    const seg = u8.subarray(p + 4, p + 2 + L);
+    try {
+      if (m === 0xE1 && ascii(seg, 0, 6) === 'Exif\0\0') res.exif = parseTIFF(seg.subarray(6));
+      else if (m === 0xE1 && ascii(seg, 0, 29) === 'http://ns.adobe.com/xap/1.0/\0') res.xmp = utf8(seg.subarray(29));
+      else if (m === 0xFE) res.texts.push({ key: 'Comment', text: smartText(seg), chunk: 'JPEG COM' });
+    } catch (e) { res.errors.push(`JPEG 세그먼트 해석 실패: ${e.message}`); }
+    p += 2 + L;
+  }
+}
+
+/* ---------- WebP ---------- */
+function parseWebP(u8, res) {
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  let p = 12;
+  while (p + 8 <= u8.length) {
+    const type = ascii(u8, p, 4), size = dv.getUint32(p + 4, true);
+    let data = u8.subarray(p + 8, p + 8 + size);
+    res.chunks.push(type.trim());
+    try {
+      if (type === 'EXIF') {
+        if (ascii(data, 0, 6) === 'Exif\0\0') data = data.subarray(6);
+        res.exif = parseTIFF(data);
+      } else if (type === 'XMP ') res.xmp = utf8(data);
+    } catch (e) { res.errors.push(`WebP ${type} 해석 실패: ${e.message}`); }
+    p += 8 + size + (size & 1);
+  }
+}
+
+/* ---------- EXIF (TIFF) ---------- */
+const TAGS = {
+  IFD0: { 0x010E: 'ImageDescription', 0x010F: 'Make', 0x0110: 'Model', 0x0112: 'Orientation', 0x011A: 'XResolution', 0x011B: 'YResolution',
+    0x0128: 'ResolutionUnit', 0x0131: 'Software', 0x0132: 'DateTime', 0x013B: 'Artist', 0x8298: 'Copyright',
+    0x9C9B: 'XPTitle', 0x9C9C: 'XPComment', 0x9C9D: 'XPAuthor', 0x9C9E: 'XPKeywords', 0x9C9F: 'XPSubject' },
+  Exif: { 0x829A: 'ExposureTime', 0x829D: 'FNumber', 0x8822: 'ExposureProgram', 0x8827: 'ISO', 0x9000: 'ExifVersion',
+    0x9003: 'DateTimeOriginal', 0x9004: 'DateTimeDigitized', 0x9010: 'OffsetTime', 0x9201: 'ShutterSpeedValue', 0x9202: 'ApertureValue',
+    0x9204: 'ExposureBias', 0x9207: 'MeteringMode', 0x9209: 'Flash', 0x920A: 'FocalLength', 0x9286: 'UserComment',
+    0xA001: 'ColorSpace', 0xA002: 'PixelXDimension', 0xA003: 'PixelYDimension', 0xA405: 'FocalLengthIn35mm',
+    0xA420: 'ImageUniqueID', 0xA433: 'LensMake', 0xA434: 'LensModel', 0x927C: 'MakerNote' },
+  GPS: { 0x0000: 'GPSVersionID', 0x0001: 'GPSLatitudeRef', 0x0002: 'GPSLatitude', 0x0003: 'GPSLongitudeRef', 0x0004: 'GPSLongitude',
+    0x0005: 'GPSAltitudeRef', 0x0006: 'GPSAltitude', 0x0007: 'GPSTimeStamp', 0x001D: 'GPSDateStamp' },
+};
+const TYPE_SIZE = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8 };
+
+function parseTIFF(u8) {
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const le = u8[0] === 0x49;
+  const g16 = o => dv.getUint16(o, le), g32 = o => dv.getUint32(o, le);
+  if (g16(2) !== 42) throw new Error('TIFF 헤더가 아닙니다');
+  const out = [], seen = new Set();
+  const readVal = (type, count, o) => {
+    if (type === 2) return smartText(u8.subarray(o, o + count)).replace(/\0+$/, '');
+    if (type === 1 || type === 7 || type === 6) return u8.slice(o, o + count);
+    const vals = [];
+    for (let i = 0; i < count; i++) {
+      const q = o + i * TYPE_SIZE[type];
+      if (type === 3) vals.push(g16(q));
+      else if (type === 4) vals.push(g32(q));
+      else if (type === 9) vals.push(dv.getInt32(q, le));
+      else if (type === 8) vals.push(dv.getInt16(q, le));
+      else if (type === 5) vals.push([g32(q), g32(q + 4)]);
+      else if (type === 10) vals.push([dv.getInt32(q, le), dv.getInt32(q + 4, le)]);
+      else if (type === 11) vals.push(dv.getFloat32(q, le));
+      else if (type === 12) vals.push(dv.getFloat64(q, le));
+    }
+    return count === 1 ? vals[0] : vals;
+  };
+  const readIFD = (off, ifd) => {
+    if (seen.has(off) || off < 8 || off + 2 > u8.length) return;
+    seen.add(off);
+    const n = g16(off);
+    for (let i = 0; i < n; i++) {
+      const e = off + 2 + i * 12;
+      if (e + 12 > u8.length) break;
+      const tag = g16(e), type = g16(e + 2), count = g32(e + 4);
+      const bytes = (TYPE_SIZE[type] || 1) * count;
+      if (tag === 0x8769) { readIFD(g32(e + 8), 'Exif'); continue; }
+      if (tag === 0x8825) { readIFD(g32(e + 8), 'GPS'); continue; }
+      if (tag === 0xA005) continue;
+      const vo = bytes <= 4 ? e + 8 : g32(e + 8);
+      if (vo + bytes > u8.length) continue;
+      out.push({ ifd, tag, name: TAGS[ifd]?.[tag] || `0x${tag.toString(16).padStart(4, '0')}`, value: readVal(type, count, vo) });
+    }
+  };
+  readIFD(g32(4), 'IFD0');
+  return out;
+}
+
+function decodeUserComment(b) {
+  const head = latin1(b.subarray(0, 8)), body = b.subarray(8);
+  if (head.startsWith('UNICODE')) {
+    let be = body.length > 1 && body[0] === 0 && body[1] !== 0;
+    if (!be && !(body[0] !== 0 && body[1] === 0)) be = true;
+    return new TextDecoder(be ? 'utf-16be' : 'utf-16le').decode(body).replace(/\0+$/, '');
+  }
+  if (head.startsWith('ASCII') || head === '\0\0\0\0\0\0\0\0') return smartText(body).replace(/\0+$/, '');
+  return smartText(b).replace(/\0+$/, '');
+}
+function fmtExif(e) {
+  const v = e.value;
+  if (e.name === 'UserComment' && v instanceof Uint8Array) return decodeUserComment(v);
+  if (e.name.startsWith('XP') && v instanceof Uint8Array) return new TextDecoder('utf-16le').decode(v).replace(/\0+$/, '');
+  if (v instanceof Uint8Array) {
+    if (v.length <= 16) return Array.from(v, x => x.toString(16).padStart(2, '0')).join(' ');
+    return `(바이너리 ${v.length} 바이트)`;
+  }
+  const r = x => Array.isArray(x) ? (e.name === 'ExposureTime' && x[0] === 1 ? `1/${x[1]}` : x[1] ? +(x[0] / x[1]).toFixed(4) : 0) : x;
+  if (Array.isArray(v) && !Array.isArray(v[0]) && v.length === 2 && (e.name.endsWith('Resolution') || /Time$|FNumber|FocalLength|Altitude|Value|Bias/.test(e.name))) return String(r(v));
+  if (Array.isArray(v)) return v.map(r).join(', ');
+  return String(v);
+}
+function gpsDecimal(exif) {
+  const g = n => exif.find(e => e.ifd === 'GPS' && e.name === n)?.value;
+  const lat = g('GPSLatitude'), lon = g('GPSLongitude');
+  if (!Array.isArray(lat) || !Array.isArray(lon)) return null;
+  const dms = a => a.reduce((s, x, i) => s + (x[1] ? x[0] / x[1] : 0) / Math.pow(60, i), 0);
+  const la = dms(lat) * (g('GPSLatitudeRef') === 'S' ? -1 : 1), lo = dms(lon) * (g('GPSLongitudeRef') === 'W' ? -1 : 1);
+  return `${la.toFixed(6)}, ${lo.toFixed(6)}`;
+}
+
+/* ---------- 스텔스 정보 (알파/RGB 채널 LSB에 숨겨진 데이터, NovelAI 등) ---------- */
+async function readStealth(file) {
+  let bmp;
+  try { bmp = await createImageBitmap(file, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' }); }
+  catch { bmp = await createImageBitmap(file); }
+  const w = bmp.width, h = bmp.height;
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(bmp, 0, 0);
+  bmp.close?.();
+  const px = ctx.getImageData(0, 0, w, h).data;
+  const total = w * h;
+  // 픽셀은 열 우선(x 바깥, y 안쪽) 순서로 읽음
+  const readA = i => { const x = (i / h) | 0, y = i % h; return px[(y * w + x) * 4 + 3] & 1; };
+  const readRGB = i => { const p = (i / 3) | 0, ch = i % 3, x = (p / h) | 0, y = p % h; return px[(y * w + x) * 4 + ch] & 1; };
+  const modes = [
+    { reader: readA, cap: total, magics: { stealth_pnginfo: false, stealth_pngcomp: true }, label: '알파 채널' },
+    { reader: readRGB, cap: total * 3, magics: { stealth_rgbinfo: false, stealth_rgbcomp: true }, label: 'RGB 채널' },
+  ];
+  for (const m of modes) {
+    if (m.cap < 152) continue;
+    const bytes = (start, n) => {
+      const out = new Uint8Array(n);
+      for (let i = 0; i < n; i++) { let b = 0; for (let k = 0; k < 8; k++) b = (b << 1) | m.reader(start + i * 8 + k); out[i] = b; }
+      return out;
+    };
+    const magic = latin1(bytes(0, 15));
+    if (!(magic in m.magics)) continue;
+    const lb = bytes(120, 4);
+    const lenBits = ((lb[0] << 24) | (lb[1] << 16) | (lb[2] << 8) | lb[3]) >>> 0;
+    if (!lenBits || 152 + lenBits > m.cap) return { width: w, height: h, stealth: { error: '스텔스 데이터 길이가 올바르지 않습니다', magic } };
+    let payload = bytes(152, lenBits >> 3);
+    if (m.magics[magic]) payload = await inflate(payload, 'gzip');
+    const text = utf8(payload);
+    return { width: w, height: h, stealth: { magic, label: m.label, text, json: tryJSON(text) } };
+  }
+  return { width: w, height: h, stealth: null };
+}
+
+/* ---------- 분석 ---------- */
+async function analyze(file) {
+  const u8 = new Uint8Array(await file.arrayBuffer());
+  const res = { format: '알 수 없음', width: 0, height: 0, texts: [], chunks: [], exif: null, xmp: null, stealth: null, errors: [] };
+  try {
+    if (u8[0] === 0x89 && ascii(u8, 1, 3) === 'PNG') { res.format = 'PNG'; await parsePNG(u8, res); }
+    else if (u8[0] === 0xFF && u8[1] === 0xD8) { res.format = 'JPEG'; parseJPEG(u8, res); }
+    else if (ascii(u8, 0, 4) === 'RIFF' && ascii(u8, 8, 4) === 'WEBP') { res.format = 'WebP'; parseWebP(u8, res); }
+    else if (ascii(u8, 0, 3) === 'GIF') res.format = 'GIF';
+    else if (ascii(u8, 4, 8) === 'ftypavif') res.format = 'AVIF';
+  } catch (e) { res.errors.push('파일 구조 해석 실패: ' + e.message); }
+  try {
+    const st = await readStealth(file);
+    res.width = st.width; res.height = st.height;
+    if (res.format === 'PNG' || res.format === 'WebP') res.stealth = st.stealth;
+  } catch (e) { res.errors.push('이미지 디코딩 실패: ' + e.message); }
+  if (res.exif) {
+    const uc = res.exif.find(e => e.name === 'UserComment');
+    if (uc) res.userComment = fmtExif(uc);
+  }
+  res.gen = interpret(res);
+  return res;
+}
+
+function interpret(res) {
+  const t = {};
+  for (const x of res.texts) if (!(x.key in t)) t[x.key] = x.text;
+
+  // NovelAI
+  const isNAI = f => f && (f.Software === 'NovelAI' || /NovelAI/i.test(f.Source || '') || /NovelAI|^AI generated image/i.test(f.Title || '')
+    || (() => { const c = typeof f.Comment === 'string' ? tryJSON(f.Comment) : f.Comment; return !!(c && ('uc' in c || 'v4_prompt' in c)); })());
+  let fields = null, origin = '';
+  if (isNAI(t)) { fields = t; origin = 'PNG 텍스트 청크'; }
+  else if (res.stealth?.json && isNAI(res.stealth.json)) { fields = res.stealth.json; origin = `스텔스 정보 (${res.stealth.label})`; }
+  if (fields) { const nai = parseNAI(fields); if (nai) return { kind: 'nai', origin, ...nai }; }
+
+  // Stable Diffusion WebUI (A1111 / Forge)
+  const sdText = t.parameters
+    || (res.userComment && /Steps:\s*\d+/.test(res.userComment) ? res.userComment : null)
+    || (res.stealth && !res.stealth.json && /Steps:\s*\d+/.test(res.stealth.text || '') ? res.stealth.text : null);
+  if (sdText) return { kind: 'a1111', origin: t.parameters ? 'PNG 텍스트 청크 (parameters)' : res.userComment === sdText ? 'EXIF UserComment' : `스텔스 정보 (${res.stealth.label})`, ...parseA1111(sdText) };
+
+  // ComfyUI
+  const comfy = tryJSON(t.prompt);
+  if (comfy && typeof comfy === 'object' && Object.values(comfy).some(n => n && n.class_type)) return { kind: 'comfy', origin: 'PNG 텍스트 청크 (prompt)', ...parseComfy(comfy) };
+
+  return null;
+}
+
+const SAMPLERS = {
+  k_euler: 'Euler', k_euler_ancestral: 'Euler Ancestral', k_dpmpp_2s_ancestral: 'DPM++ 2S Ancestral', k_dpmpp_2m: 'DPM++ 2M',
+  k_dpmpp_2m_sde: 'DPM++ 2M SDE', k_dpmpp_sde: 'DPM++ SDE', k_dpm_2: 'DPM2', k_dpm_2_ancestral: 'DPM2 Ancestral',
+  k_dpm_fast: 'DPM Fast', k_dpm_adaptive: 'DPM Adaptive', k_lms: 'LMS', ddim: 'DDIM', ddim_v3: 'DDIM', plms: 'PLMS',
+};
+
+function parseNAI(f) {
+  const c = typeof f.Comment === 'string' ? tryJSON(f.Comment) : f.Comment;
+  if (!c || typeof c !== 'object') {
+    if (!f.Description) return null;
+    return { positive: f.Description, negative: '', chars: [], settings: [['소프트웨어', f.Software || 'NovelAI']], extra: [], model: f.Source || '' };
+  }
+  const v4p = c.v4_prompt?.caption, v4n = c.v4_negative_prompt?.caption;
+  const positive = v4p?.base_caption ?? c.prompt ?? f.Description ?? '';
+  const negative = v4n?.base_caption ?? c.uc ?? '';
+
+  let chars = [];
+  if (Array.isArray(v4p?.char_captions) && v4p.char_captions.length) {
+    chars = v4p.char_captions.map((cc, i) => ({
+      positive: cc.char_caption ?? '', negative: v4n?.char_captions?.[i]?.char_caption ?? '', centers: cc.centers || [],
+    }));
+  } else if (Array.isArray(c.characterPrompts) && c.characterPrompts.length) {
+    chars = c.characterPrompts.map(cp => ({ positive: cp.prompt || '', negative: cp.uc || '', centers: cp.center ? [cp.center] : [], enabled: cp.enabled }));
+  }
+
+  const used = new Set(['prompt', 'uc', 'v4_prompt', 'v4_negative_prompt', 'characterPrompts', 'width', 'height', 'steps', 'scale',
+    'cfg_rescale', 'seed', 'sampler', 'noise_schedule', 'skip_cfg_above_sigma', 'request_type', 'n_samples']);
+  const S = [];
+  const add = (k, v, raw) => { if (v !== undefined && v !== null && v !== '') S.push([k, String(v), raw]); };
+  add('모델', f.Source);
+  if (c.width && c.height) add('해상도', `${c.width} × ${c.height}`);
+  add('스텝', c.steps);
+  add('프롬프트 가이던스', c.scale);
+  add('가이던스 리스케일', c.cfg_rescale);
+  add('시드', c.seed);
+  add('샘플러', c.sampler ? (SAMPLERS[c.sampler] ? `${SAMPLERS[c.sampler]}` : c.sampler) : null, c.sampler);
+  add('노이즈 스케줄', c.noise_schedule);
+  if ('skip_cfg_above_sigma' in c) add('Variety+', c.skip_cfg_above_sigma != null ? '켜짐' : '꺼짐');
+  if ('sm' in c && !c.v4_prompt) { add('SMEA', c.sm ? (c.sm_dyn ? 'SMEA + DYN' : 'SMEA') : '꺼짐'); used.add('sm'); used.add('sm_dyn'); }
+  if (/img2img|inpaint/i.test(c.request_type || '') || c.image) {
+    add('img2img 강도', c.strength); add('img2img 노이즈', c.noise); used.add('strength'); used.add('noise');
+  }
+  add('요청 유형', c.request_type);
+  if (f['Generation time']) add('생성 소요 시간', `${(+f['Generation time']).toFixed(2)}초`, f['Generation time']);
+  if (f.Software && f.Software !== 'NovelAI') add('소프트웨어', f.Software);
+
+  const vibes = [];
+  if (Array.isArray(c.reference_strength_multiple) && c.reference_strength_multiple.length) {
+    c.reference_strength_multiple.forEach((s, i) => vibes.push({ strength: s, info: c.reference_information_extracted_multiple?.[i] }));
+    used.add('reference_strength_multiple'); used.add('reference_information_extracted_multiple');
+  }
+
+  const extra = Object.entries(c).filter(([k]) => !used.has(k));
+  return {
+    positive, negative, chars, settings: S, extra, vibes,
+    useCoords: c.v4_prompt?.use_coords ?? c.use_coords, useOrder: c.v4_prompt?.use_order,
+    model: (f.Source || '').replace(/\s+[0-9A-F]{8}$/i, ''), comment: c,
+  };
+}
+
+function parseA1111(text) {
+  const lines = text.replace(/\r/g, '').split('\n');
+  let paramLine = '';
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (/^\s*Steps:\s*\d+/.test(lines[i])) { paramLine = lines.splice(i).join(', '); break; }
+  }
+  let pos = lines, neg = [];
+  const ni = lines.findIndex(l => l.startsWith('Negative prompt:'));
+  if (ni >= 0) { pos = lines.slice(0, ni); neg = lines.slice(ni); neg[0] = neg[0].replace(/^Negative prompt:\s*/, ''); }
+  const settings = [];
+  const re = /\s*([^:,]+?):\s*("(?:\\.|[^\\"])*"|[^,]*)(?:,|$)/g;
+  let m;
+  while ((m = re.exec(paramLine)) && m[0]) settings.push([m[1].trim(), m[2].trim().replace(/^"|"$/g, '')]);
+  const model = settings.find(s => s[0] === 'Model')?.[1] || '';
+  return { positive: pos.join('\n').trim(), negative: neg.join('\n').trim(), chars: [], settings, extra: [], model };
+}
+
+function parseComfy(p) {
+  const node = id => p[id];
+  const textOf = (id, depth = 0) => {
+    const n = node(id);
+    if (!n || depth > 8) return null;
+    for (const k of ['text', 'text_g', 'prompt', 'positive_prompt', 'string']) if (typeof n.inputs?.[k] === 'string') return n.inputs[k];
+    for (const v of Object.values(n.inputs || {})) if (Array.isArray(v) && typeof v[0] !== 'object') { const r = textOf(v[0], depth + 1); if (r != null) return r; }
+    return null;
+  };
+  const ks = Object.values(p).find(n => /KSampler|SamplerCustom/i.test(n.class_type || ''));
+  const settings = [];
+  const ckpt = Object.values(p).find(n => n.inputs?.ckpt_name || n.inputs?.unet_name);
+  if (ckpt) settings.push(['모델', ckpt.inputs.ckpt_name || ckpt.inputs.unet_name]);
+  if (ks) for (const k of ['seed', 'noise_seed', 'steps', 'cfg', 'sampler_name', 'scheduler', 'denoise'])
+    if (ks.inputs?.[k] !== undefined && !Array.isArray(ks.inputs[k])) settings.push([k, String(ks.inputs[k])]);
+  return {
+    positive: ks && Array.isArray(ks.inputs?.positive) ? textOf(ks.inputs.positive[0]) || '' : '',
+    negative: ks && Array.isArray(ks.inputs?.negative) ? textOf(ks.inputs.negative[0]) || '' : '',
+    chars: [], settings, extra: [], model: settings[0]?.[1] || '',
+  };
+}
+
+/* ---------- 렌더링 ---------- */
+const state = { items: [], current: -1, tagView: false };
+const CHAR_COLORS = ['#8b5cf6', '#0891b2', '#db2777', '#65a30d', '#ea580c', '#2563eb'];
+const GEN_LABEL = { nai: 'NovelAI', a1111: 'Stable Diffusion WebUI', comfy: 'ComfyUI' };
+
+/* ---------- 프롬프트 해석 ----------
+   NAI 가중치 그룹(3::태그1, 태그2::), 괄호 강조({ } [ ] ( ))가 쉼표를 넘어 여러 태그를 감싸도
+   그룹 단위로 묶어서 읽음 */
+const WEIGHT_RE = /^-?\d+(?:\.\d+)?::/;
+const BR_OPEN = { '{': '}', '[': ']', '(': ')' }, BR_CLOSE = { '}': '{', ']': '[', ')': '(' };
+const wClass = w => w < 0 ? 'minus' : w > 1 ? 'up' : w < 1 ? 'down' : '';
+const isWeightStart = (src, i) => !/[\w.]/.test(src[i - 1] || '') && WEIGHT_RE.exec(src.slice(i, i + 24));
+
+function parsePrompt(src) {
+  const root = { items: [] }, stack = [root];
+  let buf = '';
+  const top = () => stack[stack.length - 1];
+  const flush = () => { const t = buf.trim(); if (t) top().items.push({ type: 'tag', text: t }); buf = ''; };
+  const close = end => { const g = stack.pop(); g.raw = src.slice(g.start, end).trim(); };
+  const weightIdx = () => stack.findIndex(g => g.kind === 'w');
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === '\\' && i + 1 < src.length) { buf += ch + src[++i]; continue; }
+    const wm = isWeightStart(src, i);
+    if (wm) {
+      flush();
+      const wi = weightIdx(); // NAI 가중치 그룹은 중첩되지 않음: 열려 있던 그룹은 여기서 끝남
+      if (wi > 0) while (stack.length > wi) close(i);
+      const g = { type: 'group', kind: 'w', weight: parseFloat(wm[0]), items: [], start: i };
+      top().items.push(g); stack.push(g); i += wm[0].length - 1; continue;
+    }
+    if (ch === ':' && src[i + 1] === ':') {
+      const wi = weightIdx();
+      if (wi > 0) { flush(); while (stack.length > wi + 1) close(i); close(i + 2); }
+      else buf += '::';
+      i++; continue;
+    }
+    if (BR_OPEN[ch]) { flush(); const g = { type: 'group', kind: ch, items: [], start: i }; top().items.push(g); stack.push(g); continue; }
+    if (BR_CLOSE[ch]) {
+      let k = stack.length - 1;
+      while (k > 0 && stack[k].kind !== BR_CLOSE[ch]) k--;
+      if (k > 0) { flush(); while (stack.length > k + 1) close(i); close(i + 1); continue; }
+    }
+    if (ch === ',' || ch === '\n' || ch === '|') { flush(); continue; }
+    buf += ch;
+  }
+  flush();
+  while (stack.length > 1) close(src.length);
+  return root.items;
+}
+const countTags = items => items.reduce((n, it) => n + (it.type === 'tag' ? 1 : countTags(it.items)), 0);
+
+/* 텍스트 보기: 가중치 기호에 색, 가중치 그룹 범위에 배경 */
+function hl(src) {
+  let out = '', open = false, last = 0, m;
+  const re = /(\\.)|(-?\d+(?:\.\d+)?::)|(::)|([{}\[\]()])/g;
+  while ((m = re.exec(src))) {
+    out += esc(src.slice(last, m.index)); last = re.lastIndex;
+    if (m[1]) out += esc(m[1]);
+    else if (m[2]) {
+      if (/[\w.]/.test(src[m.index - 1] || '')) { out += esc(m[2]); continue; }
+      if (open) out += '</span>';
+      out += `<span class="rw ${wClass(parseFloat(m[2]))}"><span class="hw">${esc(m[2])}</span>`; open = true;
+    } else if (m[3]) { out += '<span class="hw">::</span>'; if (open) { out += '</span>'; open = false; } }
+    else out += `<span class="hb">${esc(m[4])}</span>`;
+  }
+  return out + esc(src.slice(last)) + (open ? '</span>' : '');
+}
+
+/* 태그 보기 */
+function groupInfo(g) {
+  // {{{a, b}}} 처럼 같은 괄호가 겹친 경우 한 그룹으로 펼침
+  let depth = 1, inner = g;
+  while (inner.kind !== 'w' && inner.items.length === 1 && inner.items[0].type === 'group' && inner.items[0].kind === inner.kind) { inner = inner.items[0]; depth++; }
+  let label, cls;
+  if (g.kind === 'w') { label = `${g.weight}×`; cls = wClass(g.weight); }
+  else {
+    const close = BR_OPEN[g.kind];
+    label = depth <= 3 ? g.kind.repeat(depth) + ' ' + close.repeat(depth) : `${g.kind}${close}×${depth}`;
+    const aw = g.kind === '(' && inner.items.length === 1 && inner.items[0].type === 'tag' && inner.items[0].text.match(/:(-?\d+(?:\.\d+)?)$/);
+    cls = aw ? wClass(+aw[1]) : g.kind === '[' ? 'down' : 'up';
+  }
+  return { inner, label, cls };
+}
+function chipsHTML(items) {
+  return items.map(it => {
+    if (it.type === 'tag') return `<button class="chip" data-copy="${clip(it.text)}" title="클릭하여 복사">${hl(it.text)}</button>`;
+    const { inner, label, cls } = groupInfo(it);
+    if (inner.items.length === 1 && inner.items[0].type === 'tag')
+      return `<button class="chip ${cls}" data-copy="${clip(it.raw)}" title="클릭하여 복사">${hl(it.raw)}</button>`;
+    const n = countTags(inner.items);
+    return `<span class="grp ${cls}"><button class="glabel" data-copy="${clip(it.raw)}" title="태그 ${n}개 묶음 · 클릭하면 그룹 전체 복사">${esc(label)}</button>${chipsHTML(inner.items)}</span>`;
+  }).join('');
+}
+
+function promptBody(text) {
+  if (!text || !text.trim()) return '<p class="empty-note">없음</p>';
+  if (!state.tagView) return `<div class="ptext">${hl(text)}</div>`;
+  return `<div class="chips">${chipsHTML(parsePrompt(text))}</div>`;
+}
+
+function promptCard(title, text, kind) {
+  const has = text && text.trim();
+  return `<section class="card prompt ${kind}">
+    <div class="card-head"><h3>${title}</h3>
+      <span class="count">${has ? countTags(parsePrompt(text)) + '개 태그' : ''}</span>
+      ${has ? `<button class="btn sm" data-copy="${clip(text)}">복사</button>` : ''}
+    </div>${promptBody(text)}</section>`;
+}
+
+const posLabel = c => String.fromCharCode(65 + Math.max(0, Math.min(4, Math.round((c.x - 0.1) / 0.2)))) + (Math.max(0, Math.min(4, Math.round((c.y - 0.1) / 0.2))) + 1);
+const posGrid = (dots, lg) => `<div class="pos-grid ${lg ? 'lg' : ''}">${dots.map(d =>
+  `<i style="left:${d.x * 100}%;top:${d.y * 100}%;background:${d.color}">${lg ? d.n : ''}</i>`).join('')}</div>`;
+
+function charsSection(g) {
+  if (!g.chars?.length) return '';
+  const coords = g.useCoords !== false;
+  const all = [];
+  g.chars.forEach((ch, i) => (ch.centers || []).forEach(c => all.push({ ...c, color: CHAR_COLORS[i % CHAR_COLORS.length], n: i + 1 })));
+  const meta = [`${g.chars.length}명`];
+  meta.push(coords ? '위치 직접 지정' : '위치: AI 자동 선택');
+  if (g.useOrder !== undefined) meta.push(g.useOrder ? '순서 사용' : '순서 미사용');
+  return `<section class="stack">
+    <div class="chars-head">
+      ${coords && all.length ? posGrid(all, true) : ''}
+      <div><h2>캐릭터 프롬프트</h2><div class="meta">${esc(meta.join(' · '))}</div></div>
+    </div>
+    ${g.chars.map((ch, i) => {
+      const color = CHAR_COLORS[i % CHAR_COLORS.length];
+      const both = `긍정:\n${ch.positive}\n\n부정:\n${ch.negative}`;
+      const pos = coords && ch.centers?.length
+        ? `${posGrid(ch.centers.map(c => ({ ...c, color })), false)}<span class="poslabel">위치 ${ch.centers.map(posLabel).join(', ')}</span>` : '';
+      return `<section class="card char" style="--cc:${color}">
+        <div class="card-head"><span class="dot"></span><h3>캐릭터 ${i + 1}</h3>${ch.enabled === false ? '<span class="badge none">비활성</span>' : ''}${pos}
+          <span class="count"></span><button class="btn sm" data-copy="${clip(both)}">전체 복사</button></div>
+        <div class="sub"><div class="sublabel p">긍정 프롬프트 <button class="btn sm" data-copy="${clip(ch.positive)}">복사</button></div>${promptBody(ch.positive)}</div>
+        <div class="sub"><div class="sublabel n">부정 프롬프트 ${ch.negative ? `<button class="btn sm" data-copy="${clip(ch.negative)}">복사</button>` : ''}</div>${promptBody(ch.negative)}</div>
+      </section>`;
+    }).join('')}
+  </section>`;
+}
+
+function settingsCard(g) {
+  if (!g.settings?.length) return '';
+  return `<section class="card"><div class="card-head"><h3>생성 설정</h3><span class="count">클릭하면 값이 복사됩니다</span></div>
+    <div class="kvgrid">${g.settings.map(([k, v, raw]) =>
+      `<button class="kv" data-copy="${clip(raw ?? v)}"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></button>`).join('')}</div></section>`;
+}
+
+function vibesCard(g) {
+  if (!g.vibes?.length) return '';
+  return `<section class="card"><div class="card-head"><h3>바이브 트랜스퍼</h3><span class="count">${g.vibes.length}개</span></div>
+    <table>${g.vibes.map((v, i) => `<tr><th>#${i + 1}</th><td>강도 ${esc(v.strength)}${v.info != null ? ` · 정보 추출 ${esc(v.info)}` : ''}</td></tr>`).join('')}</table></section>`;
+}
+
+function extraValue(v) {
+  const s = typeof v === 'string' ? v : JSON.stringify(v);
+  if (s.length > 240) return `${esc(s.slice(0, 240))}… <span class="poslabel">(전체 ${s.length.toLocaleString()}자)</span>`;
+  return esc(s);
+}
+function extraCard(g) {
+  if (!g.extra?.length) return '';
+  return `<details class="card"><summary>기타 파라미터 <span class="hint">${g.extra.length}개</span></summary>
+    <table>${g.extra.map(([k, v]) => `<tr><th class="mono">${esc(k)}</th><td class="mono" data-copy="${clip(typeof v === 'string' ? v : JSON.stringify(v))}" title="클릭하여 복사" style="cursor:pointer">${extraValue(v)}</td></tr>`).join('')}</table></details>`;
+}
+
+function rawSection(item) {
+  const r = item.result, f = item.file;
+  const parts = [];
+  const info = [['파일명', f.name], ['형식', r.format], ['파일 크기', fmtBytes(f.size)],
+    ['해상도', r.width ? `${r.width} × ${r.height}` : '-'], ['수정한 날짜', f.lastModified ? new Date(f.lastModified).toLocaleString() : '-']];
+  if (r.chunks.length) info.push(['청크', [...new Set(r.chunks)].join(', ')]);
+  parts.push(`<div class="section-title">파일 정보</div><table>${info.map(([k, v]) => `<tr><th>${k}</th><td>${esc(v)}</td></tr>`).join('')}</table>`);
+
+  if (r.texts.length) {
+    parts.push(`<div class="section-title">텍스트 메타데이터</div>` + r.texts.map(t =>
+      `<div class="raw-item"><div class="raw-head"><b>${esc(t.key)}</b><span class="tag">${t.chunk}</span><button class="btn sm" data-copy="${clip(t.text)}">복사</button></div><pre>${esc(pretty(t.text))}</pre></div>`).join(''));
+  }
+  if (r.stealth) {
+    const s = r.stealth;
+    if (s.error) parts.push(`<div class="section-title">스텔스 정보</div><p class="empty-note err">${esc(s.error)}</p>`);
+    else {
+      let body = `<div class="raw-item"><div class="raw-head"><b>${esc(s.magic)}</b><span class="tag">${esc(s.label)} LSB</span><button class="btn sm" data-copy="${clip(s.text)}">복사</button></div><pre>${esc(pretty(s.text))}</pre></div>`;
+      if (s.json && typeof s.json.Comment === 'string' && tryJSON(s.json.Comment)) {
+        body += `<div class="raw-item"><div class="raw-head"><b>Comment (해석됨)</b><button class="btn sm" data-copy="${clip(s.json.Comment)}">복사</button></div><pre>${esc(pretty(s.json.Comment))}</pre></div>`;
+      }
+      parts.push(`<div class="section-title">스텔스 정보</div>` + body);
+    }
+  }
+  if (r.exif?.length) {
+    const gps = gpsDecimal(r.exif);
+    parts.push(`<div class="section-title">EXIF</div><table>${r.exif.filter(e => e.name !== 'MakerNote').map(e =>
+      `<tr><th>${esc(e.name)}</th><td class="${e.name === 'UserComment' ? 'mono' : ''}">${esc(fmtExif(e))}</td></tr>`).join('')}
+      ${gps ? `<tr><th>GPS 좌표</th><td>${esc(gps)}</td></tr>` : ''}</table>`);
+  }
+  if (r.xmp) parts.push(`<div class="section-title">XMP</div><div class="raw-item"><div class="raw-head"><b>XMP</b><button class="btn sm" data-copy="${clip(r.xmp)}">복사</button></div><pre>${esc(r.xmp)}</pre></div>`);
+  if (r.errors.length) parts.push(`<div class="section-title">경고</div>${r.errors.map(e => `<p class="empty-note err">${esc(e)}</p>`).join('')}`);
+
+  return `<details class="card" ${r.gen ? '' : 'open'}><summary>원본 메타데이터 <span class="hint">파일에 들어 있는 모든 정보</span></summary>${parts.join('')}</details>`;
+}
+
+/* 썸네일 줄은 파일을 추가/삭제할 때만 다시 만들고, 선택이 바뀔 때는 표시만 갱신 (스크롤 위치 유지) */
+const genTag = it => it.result?.gen ? `<span class="tb">${it.result.gen.kind === 'nai' ? 'NAI' : it.result.gen.kind === 'a1111' ? 'SD' : 'Comfy'}</span>` : '';
+function renderStrip() {
+  $('#btnClear').hidden = state.items.length === 0;
+  $('#sortSel').hidden = state.items.length < 2;
+  $('#stripWrap').classList.toggle('show', state.items.length > 1);
+  $('#strip').innerHTML = state.items.map((it, i) =>
+    `<button class="thumb" data-idx="${i}" title="${i + 1}. ${esc(it.file.name)}"><img src="${it.url}" alt=""><span class="no">${i + 1}</span>${genTag(it)}</button>`).join('');
+  markActive();
+}
+function updateThumb(i) {
+  const t = $(`.thumb[data-idx="${i}"]`);
+  if (t && !t.querySelector('.tb')) t.insertAdjacentHTML('beforeend', genTag(state.items[i]));
+}
+function markActive() {
+  document.querySelectorAll('.thumb').forEach(t => t.classList.toggle('active', +t.dataset.idx === state.current));
+  $('.thumb.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+function select(i) {
+  if (i < 0 || i >= state.items.length || i === state.current) return;
+  state.current = i;
+  markActive();
+  render();
+  window.scrollTo({ top: 0 });
+  if (viewer.open) viewer.load();
+}
+
+/* 정렬: 이름순(숫자는 자연 정렬) / 날짜순(파일 저장 시각) */
+const byName = (a, b) => a.file.name.localeCompare(b.file.name, undefined, { numeric: true, sensitivity: 'base' });
+const SORTS = {
+  'name-asc': byName,
+  'name-desc': (a, b) => byName(b, a),
+  'date-asc': (a, b) => a.file.lastModified - b.file.lastModified || byName(a, b),
+  'date-desc': (a, b) => b.file.lastModified - a.file.lastModified || byName(a, b),
+};
+state.sort = 'name-asc';
+function sortItems() {
+  const cur = state.items[state.current];
+  state.items.sort(SORTS[state.sort]);
+  state.current = cur ? state.items.indexOf(cur) : state.current;
+}
+
+function render() {
+  clips = [];
+  const main = $('#main');
+
+  if (state.current < 0) {
+    main.innerHTML = `<div class="drop" id="drop">
+      <h2>이미지를 끌어다 놓거나 클릭해서 선택하세요</h2>
+      <p>Ctrl+V 로 붙여넣기도 됩니다 · 여러 장을 한 번에 열 수 있어요</p>
+      <p>NovelAI 이미지는 긍정 / 부정 / 캐릭터별 프롬프트로 나누어 보여 줍니다</p>
+      <p class="formats">PNG · JPEG · WebP 지원 · NovelAI, Stable Diffusion WebUI, ComfyUI, EXIF 해석 · 모든 처리는 이 컴퓨터 안에서만 이뤄집니다</p>
+    </div>`;
+    return;
+  }
+  const item = state.items[state.current];
+  if (!item.result) { main.innerHTML = '<div class="loading">분석 중…</div>'; return; }
+  const r = item.result, g = r.gen;
+
+  let content = '';
+  const badges = [];
+  if (g) {
+    badges.push(`<span class="badge gen">${GEN_LABEL[g.kind]}${g.model ? ' · ' + esc(g.model) : ''}</span>`);
+    badges.push(`<span class="badge">출처: ${esc(g.origin)}</span>`);
+    content += promptCard('긍정 프롬프트', g.positive, 'pos');
+    content += promptCard('부정 프롬프트', g.negative, 'neg');
+    content += charsSection(g);
+    content += settingsCard(g);
+    content += vibesCard(g);
+    content += extraCard(g);
+  } else {
+    badges.push('<span class="badge none">생성 정보 없음</span>');
+    content += `<div class="notice"><b>AI 생성 정보를 찾지 못했습니다.</b>
+      <ul><li>SNS, 메신저(카카오톡, 디스코드 등)에 올렸다 받은 이미지는 메타데이터가 지워지는 경우가 많습니다.</li>
+      <li>브라우저에서 "이미지 복사" 후 붙여넣은 경우에도 정보가 사라집니다. 원본 파일을 직접 열어 주세요.</li>
+      <li>아래 원본 메타데이터에서 파일에 남아 있는 다른 정보를 확인할 수 있습니다.</li></ul></div>`;
+  }
+  content += rawSection(item);
+
+  main.innerHTML = `<div class="layout">
+    <aside class="preview">
+      <div class="imgbox"><img src="${item.url}" alt="${esc(item.file.name)}" id="previewImg" title="클릭하면 확대해서 봅니다"></div>
+      <div class="fileinfo"><b>${esc(item.file.name)}</b>${esc(r.format)} · ${r.width ? `${r.width} × ${r.height} · ` : ''}${fmtBytes(item.file.size)}</div>
+    </aside>
+    <div class="stack">
+      <div class="summary">${badges.join('')}</div>
+      ${content}
+    </div>
+  </div>`;
+}
+
+/* ---------- 파일 입력 ---------- */
+async function addFiles(files) {
+  const list = Array.from(files).filter(f => f.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|avif)$/i.test(f.name));
+  if (!list.length) { toast('이미지 파일이 아닙니다'); return; }
+  // 선택한 정렬 방식대로 전체 목록을 다시 배치하고, 새로 넣은 것 중 가장 왼쪽 이미지를 보여 줌
+  const added = list.map(f => ({ file: f, url: URL.createObjectURL(f), result: null }));
+  state.items.push(...added);
+  state.items.sort(SORTS[state.sort]);
+  added.sort((a, b) => state.items.indexOf(a) - state.items.indexOf(b));
+  state.current = state.items.indexOf(added[0]);
+  renderStrip();
+  render();
+  if (viewer.open) viewer.load();
+  for (const it of added) {
+    try { it.result = await analyze(it.file); }
+    catch (e) { it.result = { format: '?', width: 0, height: 0, texts: [], chunks: [], errors: [e.message], gen: null }; }
+    const i = state.items.indexOf(it);
+    if (i < 0) return; // 분석 중에 "모두 지우기"를 누른 경우
+    updateThumb(i);
+    if (i === state.current) render();
+  }
+}
+
+$('#btnOpen').onclick = () => $('#fileInput').click();
+$('#fileInput').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
+$('#btnClear').onclick = () => { viewer.close(); state.items.forEach(it => URL.revokeObjectURL(it.url)); state.items = []; state.current = -1; renderStrip(); render(); };
+$('#sortSel').onchange = e => {
+  state.sort = e.target.value;
+  try { localStorage.setItem('imv-sort', state.sort); } catch {}
+  sortItems();
+  renderStrip();
+};
+
+/* ---------- 확대 보기 ---------- */
+const viewer = (() => {
+  const box = $('#viewer'), stage = $('#vStage'), img = $('#vImg');
+  let s = 1, tx = 0, ty = 0, fitS = 1;
+  const apply = () => {
+    img.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`;
+    img.classList.toggle('px', s >= 3);
+    $('#vZoom').textContent = Math.round(s * 100) + '%';
+  };
+  const center = () => { const r = stage.getBoundingClientRect(); tx = (r.width - img.naturalWidth * s) / 2; ty = (r.height - img.naturalHeight * s) / 2; };
+  const fit = () => {
+    const r = stage.getBoundingClientRect();
+    if (!img.naturalWidth) return;
+    fitS = Math.min(r.width / img.naturalWidth, r.height / img.naturalHeight);
+    s = fitS; center(); apply();
+  };
+  const zoomAt = (ns, mx, my) => {
+    ns = Math.max(0.05, Math.min(32, ns));
+    tx = mx - (mx - tx) * ns / s; ty = my - (my - ty) * ns / s; s = ns; apply();
+  };
+  const zoomCenter = f => { const r = stage.getBoundingClientRect(); zoomAt(s * f, r.width / 2, r.height / 2); };
+  const local = e => { const r = stage.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+
+  img.addEventListener('load', fit);
+  stage.addEventListener('wheel', e => { e.preventDefault(); const [x, y] = local(e); zoomAt(s * Math.exp(-e.deltaY * 0.0015), x, y); }, { passive: false });
+  stage.addEventListener('dblclick', e => {
+    if (e.target.closest('.vnav')) return;
+    const [x, y] = local(e);
+    if (Math.abs(s - fitS) < 0.01) zoomAt(fitS < 1 ? 1 : fitS * 2, x, y); else fit();
+  });
+
+  // 끌어서 이동 + 두 손가락 확대
+  const ptrs = new Map();
+  let pinch = null;
+  stage.addEventListener('pointerdown', e => {
+    if (e.target.closest('.vnav')) return;
+    stage.setPointerCapture(e.pointerId);
+    ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+    stage.classList.add('drag');
+    if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), s }; }
+  });
+  stage.addEventListener('pointermove', e => {
+    if (!ptrs.has(e.pointerId)) return;
+    const prev = ptrs.get(e.pointerId);
+    ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+    if (ptrs.size === 2 && pinch) {
+      const [a, b] = [...ptrs.values()], r = stage.getBoundingClientRect();
+      zoomAt(pinch.s * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.d, (a[0] + b[0]) / 2 - r.left, (a[1] + b[1]) / 2 - r.top);
+    } else if (ptrs.size === 1) { tx += e.clientX - prev[0]; ty += e.clientY - prev[1]; apply(); }
+  });
+  const up = e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; if (!ptrs.size) stage.classList.remove('drag'); };
+  stage.addEventListener('pointerup', up);
+  stage.addEventListener('pointercancel', up);
+  window.addEventListener('resize', () => { if (!box.hidden) fit(); });
+
+  box.addEventListener('click', e => {
+    const b = e.target.closest('[data-v]');
+    if (!b) return;
+    const v = b.dataset.v;
+    if (v === 'in') zoomCenter(1.25);
+    else if (v === 'out') zoomCenter(0.8);
+    else if (v === 'fit') fit();
+    else if (v === 'one') { s = 1; center(); apply(); }
+    else if (v === 'prev') select(state.current - 1);
+    else if (v === 'next') select(state.current + 1);
+    else if (v === 'close') api.close();
+  });
+
+  const api = {
+    get open() { return !box.hidden; },
+    load() {
+      const it = state.items[state.current];
+      if (!it) return api.close();
+      $('#vName').textContent = `${state.current + 1} / ${state.items.length} · ${it.file.name}`;
+      box.querySelector('.prev').disabled = state.current <= 0;
+      box.querySelector('.next').disabled = state.current >= state.items.length - 1;
+      if (img.src !== it.url) img.src = it.url; else fit();
+    },
+    show() { box.hidden = false; document.body.style.overflow = 'hidden'; api.load(); },
+    close() { box.hidden = true; document.body.style.overflow = ''; },
+    key(e) {
+      if (e.key === 'Escape') api.close();
+      else if (e.key === '+' || e.key === '=') zoomCenter(1.25);
+      else if (e.key === '-') zoomCenter(0.8);
+      else if (e.key === '0') fit();
+      else if (e.key === '1') { s = 1; center(); apply(); }
+      else return false;
+      return true;
+    },
+  };
+  return api;
+})();
+
+/* 썸네일 크기 조절: 아래 손잡이를 끌어 내리면 커짐 */
+const THUMB_MIN = 48, THUMB_MAX = 360;
+function setThumb(px) {
+  px = Math.round(Math.max(THUMB_MIN, Math.min(THUMB_MAX, px)));
+  document.documentElement.style.setProperty('--thumb', px + 'px');
+  return px;
+}
+let thumbSize = 64;
+const handle = $('#stripHandle');
+handle.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  handle.setPointerCapture(e.pointerId);
+  handle.classList.add('dragging');
+  const y0 = e.clientY, s0 = thumbSize;
+  const move = ev => { thumbSize = setThumb(s0 + ev.clientY - y0); };
+  const up = () => {
+    handle.classList.remove('dragging');
+    handle.removeEventListener('pointermove', move);
+    handle.removeEventListener('pointerup', up);
+    handle.removeEventListener('pointercancel', up);
+    try { localStorage.setItem('imv-thumb', thumbSize); } catch {}
+    markActive();
+  };
+  handle.addEventListener('pointermove', move);
+  handle.addEventListener('pointerup', up);
+  handle.addEventListener('pointercancel', up);
+});
+handle.addEventListener('dblclick', () => { thumbSize = setThumb(64); try { localStorage.setItem('imv-thumb', thumbSize); } catch {} });
+
+/* 썸네일 줄에서 마우스 휠을 가로 스크롤로 */
+$('#strip').addEventListener('wheel', e => {
+  if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && !e.shiftKey) { e.preventDefault(); $('#strip').scrollLeft += e.deltaY; }
+}, { passive: false });
+
+/* ← → 방향키로 이전/다음 이미지 */
+document.addEventListener('keydown', e => {
+  if (e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return;
+  if (e.target.closest?.('input, textarea, select, [contenteditable]')) return;
+  if (viewer.open && viewer.key(e)) { e.preventDefault(); return; }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); select(state.current - 1); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); select(state.current + 1); }
+});
+$('#btnTags').onclick = () => {
+  state.tagView = !state.tagView;
+  $('#btnTags').setAttribute('aria-pressed', state.tagView);
+  try { localStorage.setItem('imv-tagview', state.tagView ? '1' : '0'); } catch {}
+  render();
+};
+$('#btnTheme').onclick = () => {
+  const root = document.documentElement;
+  const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  root.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('imv-theme', root.dataset.theme); } catch {}
+};
+
+document.addEventListener('click', e => {
+  const c = e.target.closest('[data-copy]');
+  if (c) { copyText(clips[+c.dataset.copy]); return; }
+  const t = e.target.closest('.thumb');
+  if (t) { select(+t.dataset.idx); return; }
+  if (e.target.closest('#drop')) { $('#fileInput').click(); return; }
+  if (e.target.id === 'previewImg') viewer.show();
+});
+
+let dragDepth = 0;
+window.addEventListener('dragenter', e => { if (e.dataTransfer?.types?.includes('Files')) { dragDepth++; $('#overlay').classList.add('show'); } });
+window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; $('#overlay').classList.remove('show'); } });
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => {
+  e.preventDefault(); dragDepth = 0; $('#overlay').classList.remove('show');
+  if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
+});
+window.addEventListener('paste', e => {
+  const files = Array.from(e.clipboardData?.files || []);
+  if (files.length) addFiles(files);
+});
+
+try {
+  const th = localStorage.getItem('imv-theme'); if (th) document.documentElement.dataset.theme = th;
+  if (localStorage.getItem('imv-tagview') === '1') { state.tagView = true; $('#btnTags').setAttribute('aria-pressed', 'true'); }
+  const ts = +localStorage.getItem('imv-thumb'); if (ts) thumbSize = setThumb(ts);
+  const so = localStorage.getItem('imv-sort'); if (SORTS[so]) { state.sort = so; $('#sortSel').value = so; }
+} catch {}
+render();
+</script>
+</body>
+</html>
