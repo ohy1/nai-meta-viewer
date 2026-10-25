@@ -13,6 +13,7 @@
   --hw: #b45309; --hb: #4f6bed; --up-soft: #e8ecfd; --down-soft: #eef0f3;
   --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 14px rgba(0,0,0,.04);
   --checker: #e9ebee;
+  --hit: #d4a017; --hit-soft: #fdf3c4;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -21,6 +22,7 @@
     --pos: #4cc38a; --pos-soft: #1b2e25; --neg: #f08a5d; --neg-soft: #33231b;
     --hw: #f5b45a; --hb: #8fa2ff; --up-soft: #252c47; --down-soft: #262a31;
     --shadow: none; --checker: #262a31;
+    --hit: #e6c14a; --hit-soft: #3d3418;
   }
 }
 :root[data-theme="dark"] {
@@ -29,6 +31,7 @@
   --pos: #4cc38a; --pos-soft: #1b2e25; --neg: #f08a5d; --neg-soft: #33231b;
   --hw: #f5b45a; --hb: #8fa2ff; --up-soft: #252c47; --down-soft: #262a31;
   --shadow: none; --checker: #262a31;
+  --hit: #e6c14a; --hit-soft: #3d3418;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
@@ -75,6 +78,57 @@ header h1 { font-size: 16px; margin: 0; font-weight: 700; flex: 1; white-space: 
 .thumb.nometa img { opacity: .5; filter: grayscale(.7); }
 .thumb.nometa.active { border-style: solid; }
 .thumb.nometa.active img { opacity: .85; }
+/* 상단 도구 줄: 태그 검색 · 태그 비교 */
+#tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 20px 0; }
+.qbox { position: relative; flex: 1 1 240px; max-width: 460px; }
+#q {
+  width: 100%; border: 1px solid var(--border); background: var(--panel); color: var(--text);
+  border-radius: 8px; padding: 6px 30px 6px 30px; font: inherit;
+}
+#q:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.qbox::before { content: "⌕"; position: absolute; left: 10px; top: 50%; transform: translateY(-52%); color: var(--muted); font-size: 16px; pointer-events: none; }
+#qClear { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); border: 0; background: none; color: var(--muted); cursor: pointer; padding: 2px 6px; }
+#qCount { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+#btnCompare { margin-left: auto; }
+mark.q { background: var(--hit-soft); color: inherit; border-radius: 3px; box-shadow: 0 0 0 1px var(--hit); }
+.chip.hit { box-shadow: 0 0 0 2px var(--hit); }
+.thumb.cmpB { border-color: var(--pos); box-shadow: 0 0 0 2px var(--pos-soft); }
+.thumb[data-ab="A"]::after, .thumb[data-ab="B"]::after {
+  content: attr(data-ab); position: absolute; left: 3px; top: 3px; padding: 3px 5px; border-radius: 4px;
+  font: 700 11px/1 system-ui, sans-serif; color: var(--panel); background: var(--accent);
+}
+.thumb[data-ab="B"]::after { background: var(--pos); }
+
+/* 태그 비교 화면 */
+.cmp { display: flex; flex-direction: column; gap: 14px; }
+.chead { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 12px; align-items: center; }
+.cside { position: relative; min-width: 0; }
+.cimg { background: var(--checker); border-radius: 10px; overflow: hidden; border: 2px solid var(--accent); }
+.cside.b .cimg { border-color: var(--pos); }
+.cimg.nometa { border-style: dashed; border-color: var(--neg); }
+.cimg img { display: block; width: 100%; height: 240px; object-fit: contain; }
+.cside .ab { position: absolute; left: 8px; top: 8px; padding: 3px 8px; border-radius: 6px; font-weight: 700; font-size: 12px; color: var(--panel); background: var(--accent); }
+.cside.b .ab { background: var(--pos); }
+.cname { margin-top: 6px; font-size: 12px; color: var(--muted); word-break: break-all; }
+.cname .nm { color: var(--neg); }
+.cbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.cbar .btn { margin-left: auto; color: var(--text); }
+.drow + .drow { border-top: 1px solid var(--border); }
+.dlabel { display: flex; align-items: center; gap: 8px; padding: 10px 14px 0; font-size: 12px; font-weight: 700; }
+.dlabel .dn { font-weight: 400; color: var(--muted); }
+.dlabel .btn { margin-left: auto; font-weight: 400; color: var(--text); }
+.drow.add .dlabel { color: var(--pos); }
+.drow.del .dlabel { color: var(--neg); }
+.drow.chg .dlabel { color: var(--hw); }
+.chip.add { background: var(--pos-soft); border-color: var(--pos); }
+.chip.del { background: var(--neg-soft); border-color: var(--neg); text-decoration: line-through; }
+.chip.chg { background: var(--hit-soft); border-color: var(--hit); }
+.cw { margin-left: 4px; font: 700 11px ui-monospace, Consolas, monospace; color: var(--hw); }
+.dsame { border-top: 1px solid var(--border); }
+.dsame > summary { cursor: pointer; padding: 8px 14px; font-size: 12px; color: var(--muted); }
+.dtable th, .dtable td { font-variant-numeric: tabular-nums; }
+.dtable tr:first-child th { color: var(--muted); }
+
 #stripHandle {
   position: relative; height: 14px; cursor: ns-resize; touch-action: none; user-select: none;
   display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--muted); font-size: 10.5px;
@@ -274,6 +328,8 @@ pre { margin: 0; padding: 8px 14px 12px; font-size: 12px; white-space: pre-wrap;
   main { padding: 16px; }
   #strip { padding: 10px 16px 4px; }
   #stripHandle span { display: none; }
+  #tools { padding: 10px 16px 0; }
+  .cimg img { height: 150px; }
   .hide-sm { display: none; }
 }
 </style>
@@ -294,8 +350,21 @@ pre { margin: 0; padding: 8px 14px 12px; font-size: 12px; white-space: pre-wrap;
   <input type="file" id="fileInput" accept="image/*,.png,.jpg,.jpeg,.webp,.zip,application/zip" multiple hidden>
 </header>
 <div id="stripWrap">
+  <div id="tools">
+    <div class="qbox">
+      <input id="q" type="text" placeholder="태그 검색 (예: silver hair, -glasses)" title="쉼표로 여러 태그를 모두 포함하는 이미지를 찾고, 앞에 - 를 붙이면 그 태그가 있는 이미지는 뺍니다" autocomplete="off" spellcheck="false" aria-label="태그 검색">
+      <button id="qClear" title="검색어 지우기" hidden>✕</button>
+    </div>
+    <select class="sel" id="qScope" title="검색 범위">
+      <option value="all">전체에서</option>
+      <option value="pos">긍정에서만</option>
+      <option value="neg">부정에서만</option>
+    </select>
+    <span id="qCount"></span>
+    <button class="btn" id="btnCompare" aria-pressed="false" title="두 이미지의 태그 차이 보기">태그 비교</button>
+  </div>
   <div id="strip"></div>
-  <div id="stripHandle" title="아래로 끌어 썸네일 크기 조절 · 더블클릭하면 원래 크기"><span>끌어서 크기 조절 · ← → 로 이미지 이동</span></div>
+  <div id="stripHandle" title="아래로 끌어 썸네일 크기 조절 · 더블클릭하면 원래 크기"><span>끌어서 크기 조절 · ← → 이미지 이동 · / 검색</span></div>
 </div>
 <main id="main"></main>
 <footer class="foot">
@@ -723,8 +792,9 @@ const isWeightStart = (src, i) => !/[\w.]/.test(src[i - 1] || '') && WEIGHT_RE.e
 function parsePrompt(src) {
   const root = { items: [] }, stack = [root];
   let buf = '';
+  const lit = { '(': 0, '[': 0, '{': 0 }; // 태그 중간에 나온 괄호 (예: nahida (genshin impact))
   const top = () => stack[stack.length - 1];
-  const flush = () => { const t = buf.trim(); if (t) top().items.push({ type: 'tag', text: t }); buf = ''; };
+  const flush = () => { const t = buf.trim(); if (t) top().items.push({ type: 'tag', text: t }); buf = ''; lit['('] = lit['['] = lit['{'] = 0; };
   const close = end => { const g = stack.pop(); g.raw = src.slice(g.start, end).trim(); };
   const weightIdx = () => stack.findIndex(g => g.kind === 'w');
   for (let i = 0; i < src.length; i++) {
@@ -744,6 +814,8 @@ function parsePrompt(src) {
       else buf += '::';
       i++; continue;
     }
+    if (BR_OPEN[ch] && buf.trim()) { lit[ch]++; buf += ch; continue; }
+    if (BR_CLOSE[ch] && lit[BR_CLOSE[ch]] > 0) { lit[BR_CLOSE[ch]]--; buf += ch; continue; }
     if (BR_OPEN[ch]) { flush(); const g = { type: 'group', kind: ch, items: [], start: i }; top().items.push(g); stack.push(g); continue; }
     if (BR_CLOSE[ch]) {
       let k = stack.length - 1;
@@ -762,18 +834,23 @@ const countTags = items => items.reduce((n, it) => n + (it.type === 'tag' ? 1 : 
 /* 텍스트 보기: 가중치 기호에 색, 가중치 그룹 범위에 배경 */
 function hl(src) {
   let out = '', open = false, last = 0, m;
+  const lit = { '(': 0, '[': 0, '{': 0 };
+  // 태그 중간에 나온 괄호인지: 앞의 공백이 아닌 글자가 구분자/괄호가 아니면 글자 그대로
+  const midTag = i => { while (i > 0 && /\s/.test(src[i - 1])) i--; return i > 0 && !/[,|\n{}\[\]():]/.test(src[i - 1]); };
   const re = /(\\.)|(-?\d+(?:\.\d+)?::)|(::)|([{}\[\]()])/g;
   while ((m = re.exec(src))) {
-    out += esc(src.slice(last, m.index)); last = re.lastIndex;
+    out += markQ(esc(src.slice(last, m.index))); last = re.lastIndex;
     if (m[1]) out += esc(m[1]);
     else if (m[2]) {
       if (/[\w.]/.test(src[m.index - 1] || '')) { out += esc(m[2]); continue; }
       if (open) out += '</span>';
       out += `<span class="rw ${wClass(parseFloat(m[2]))}"><span class="hw">${esc(m[2])}</span>`; open = true;
     } else if (m[3]) { out += '<span class="hw">::</span>'; if (open) { out += '</span>'; open = false; } }
+    else if (BR_OPEN[m[4]] && midTag(m.index)) { lit[m[4]]++; out += esc(m[4]); }
+    else if (BR_CLOSE[m[4]] && lit[BR_CLOSE[m[4]]] > 0) { lit[BR_CLOSE[m[4]]]--; out += esc(m[4]); }
     else out += `<span class="hb">${esc(m[4])}</span>`;
   }
-  return out + esc(src.slice(last)) + (open ? '</span>' : '');
+  return out + markQ(esc(src.slice(last))) + (open ? '</span>' : '');
 }
 
 /* 태그 보기 */
@@ -793,10 +870,10 @@ function groupInfo(g) {
 }
 function chipsHTML(items) {
   return items.map(it => {
-    if (it.type === 'tag') return `<button class="chip" data-copy="${clip(it.text)}" title="클릭하여 복사">${hl(it.text)}</button>`;
+    if (it.type === 'tag') return `<button class="chip ${isHit(it.text) ? 'hit' : ''}" data-copy="${clip(it.text)}" title="클릭하여 복사">${hl(it.text)}</button>`;
     const { inner, label, cls } = groupInfo(it);
     if (inner.items.length === 1 && inner.items[0].type === 'tag')
-      return `<button class="chip ${cls}" data-copy="${clip(it.raw)}" title="클릭하여 복사">${hl(it.raw)}</button>`;
+      return `<button class="chip ${cls} ${isHit(inner.items[0].text) ? 'hit' : ''}" data-copy="${clip(it.raw)}" title="클릭하여 복사">${hl(it.raw)}</button>`;
     const n = countTags(inner.items);
     return `<span class="grp ${cls}"><button class="glabel" data-copy="${clip(it.raw)}" title="태그 ${n}개 묶음 · 클릭하면 그룹 전체 복사">${esc(label)}</button>${chipsHTML(inner.items)}</span>`;
   }).join('');
@@ -931,8 +1008,34 @@ function updateThumb(i) {
   t.title = thumbTitle(it, i);
 }
 function markActive() {
-  document.querySelectorAll('.thumb').forEach(t => t.classList.toggle('active', +t.dataset.idx === state.current));
-  $('.thumb.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  const cmp = state.compare;
+  let shown = 0;
+  document.querySelectorAll('.thumb').forEach(t => {
+    const i = +t.dataset.idx, it = state.items[i], vis = matches(it);
+    shown += vis;
+    t.hidden = !vis;
+    t.classList.toggle('active', i === state.current);
+    t.classList.toggle('cmpB', !!cmp && it === cmp.b);
+    t.dataset.ab = cmp ? (it === cmp.a ? 'A' : it === cmp.b ? 'B' : '') : '';
+  });
+  $('#qCount').textContent = searching() ? `${shown} / ${state.items.length}장` : '';
+  (cmp ? $('.thumb.cmpB') : $('.thumb.active'))?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+// 검색 중이면 검색 결과에 들어간 이미지끼리만 이동
+function step(from, dir) {
+  for (let i = from + dir; i >= 0 && i < state.items.length; i += dir) if (matches(state.items[i])) return i;
+  return -1;
+}
+function go(dir) {
+  const c = state.compare;
+  if (c) {
+    let j = state.items.indexOf(c.b);
+    do j = step(j, dir); while (j >= 0 && state.items[j] === c.a);
+    if (j >= 0) setB(state.items[j]);
+    return;
+  }
+  const j = step(state.current, dir);
+  if (j >= 0) select(j);
 }
 function select(i) {
   if (i < 0 || i >= state.items.length || i === state.current) return;
@@ -958,6 +1061,146 @@ function sortItems() {
   state.current = cur ? state.items.indexOf(cur) : state.current;
 }
 
+/* ---------- 태그 검색 · 비교 ---------- */
+const normTag = t => t.toLowerCase().replace(/\\(.)/g, '$1').replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+// 괄호 하나당 배율: NAI는 { } 1.05배, SD는 ( ) 1.1배
+const MUL = { nai: { '{': 1.05, '[': 1 / 1.05, '(': 1 }, sd: { '{': 1, '[': 1 / 1.1, '(': 1.1 } };
+function flatTags(text, kind) {
+  const mul = kind === 'nai' ? MUL.nai : MUL.sd, out = [];
+  const walk = (items, w, inParen) => items.forEach(it => {
+    if (it.type === 'tag') {
+      let t = it.text, ww = w;
+      const m = inParen && t.match(/^(.*):(-?\d+(?:\.\d+)?)$/); // SD (태그:1.2)
+      if (m) { t = m[1]; ww = w / mul['('] * +m[2]; }
+      const key = normTag(t);
+      if (key) out.push({ key, text: t.trim(), w: Math.round(ww * 1000) / 1000 });
+    } else walk(it.items, w * (it.kind === 'w' ? it.weight : mul[it.kind]), it.kind === '(');
+  });
+  walk(parsePrompt(text || ''), 1, false);
+  return out;
+}
+function itemTags(it) {
+  if (it.tags || !it.result) return it.tags;
+  const g = it.result.gen, pos = [], neg = [];
+  if (g) {
+    pos.push(...flatTags(g.positive, g.kind)); neg.push(...flatTags(g.negative, g.kind));
+    (g.chars || []).forEach(c => { pos.push(...flatTags(c.positive, g.kind)); neg.push(...flatTags(c.negative, g.kind)); });
+  }
+  return (it.tags = { pos: pos.map(t => t.key), neg: neg.map(t => t.key) });
+}
+
+state.q = { inc: [], exc: [], scope: 'all' };
+let qRe = null;
+function setQuery(raw) {
+  const terms = raw.split(',').map(normTag).filter(Boolean);
+  state.q.inc = terms.filter(t => !t.startsWith('-'));
+  state.q.exc = terms.filter(t => t.startsWith('-')).map(t => t.slice(1).trim()).filter(Boolean);
+  const reEsc = t => esc(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '[ _]');
+  qRe = state.q.inc.length ? new RegExp(state.q.inc.map(reEsc).join('|'), 'gi') : null;
+}
+const searching = () => state.q.inc.length + state.q.exc.length > 0;
+const markQ = html => qRe ? html.replace(qRe, '<mark class="q">$&</mark>') : html;
+const isHit = text => state.q.inc.some(term => normTag(text).includes(term));
+function matches(it) {
+  if (!searching()) return true;
+  const t = itemTags(it);
+  if (!t) return false;
+  const keys = state.q.scope === 'pos' ? t.pos : state.q.scope === 'neg' ? t.neg : t.pos.concat(t.neg);
+  const has = term => keys.some(k => k.includes(term));
+  return state.q.inc.every(has) && !state.q.exc.some(has);
+}
+function applySearch() {
+  markActive();
+  if (searching() && !state.compare && state.current >= 0 && !matches(state.items[state.current])) {
+    const j = state.items.findIndex(matches);
+    if (j >= 0) { select(j); return; }
+  }
+  render();
+}
+
+state.compare = null;
+function updateCompareBtn() {
+  $('#btnCompare').setAttribute('aria-pressed', !!state.compare);
+  $('#btnCompare').textContent = state.compare ? '비교 끝내기' : '태그 비교';
+}
+function startCompare() {
+  if (state.items.length < 2 || state.current < 0) return;
+  let j = step(state.current, 1);
+  if (j < 0) j = step(state.current, -1);
+  if (j < 0) j = state.current + 1 < state.items.length ? state.current + 1 : state.current - 1;
+  state.compare = { a: state.items[state.current], b: state.items[j] };
+  viewer.close(); updateCompareBtn(); markActive(); render(); window.scrollTo({ top: 0 });
+}
+function endCompare() { state.compare = null; updateCompareBtn(); markActive(); render(); }
+function setB(it) {
+  if (it === state.compare.a) { toast('기준 이미지(A)입니다. 비교할 다른 이미지를 골라 주세요', 2200); return; }
+  state.compare.b = it; markActive(); render();
+}
+function swapAB() {
+  const c = state.compare;
+  [c.a, c.b] = [c.b, c.a];
+  state.current = state.items.indexOf(c.a);
+  markActive(); render();
+}
+
+function diffTags(ta, tb) {
+  const A = new Map(), B = new Map();
+  ta.forEach(t => A.has(t.key) || A.set(t.key, t));
+  tb.forEach(t => B.has(t.key) || B.set(t.key, t));
+  const d = { onlyA: [], onlyB: [], changed: [], same: [] };
+  for (const [k, t] of A) { const u = B.get(k); if (!u) d.onlyA.push(t); else if (u.w !== t.w) d.changed.push([t, u]); else d.same.push(t); }
+  for (const [k, t] of B) if (!A.has(k)) d.onlyB.push(t);
+  return d;
+}
+const fmtW = w => String(+w.toFixed(2));
+const tagChip = (t, cls) => `<button class="chip ${cls}" data-copy="${clip(t.text)}" title="클릭하여 복사">${esc(t.text)}${t.w !== 1 ? `<span class="cw">×${fmtW(t.w)}</span>` : ''}</button>`;
+function diffSection(title, ta, tb) {
+  if (!ta.length && !tb.length) return '';
+  const d = diffTags(ta, tb), n = d.onlyA.length + d.onlyB.length + d.changed.length;
+  const row = (label, cls, list, chip, copy) => !list.length ? '' : `<div class="drow ${cls}">
+    <div class="dlabel">${label} <span class="dn">${list.length}개</span>${copy ? `<button class="btn sm" data-copy="${clip(copy)}">모두 복사</button>` : ''}</div>
+    <div class="chips">${list.map(chip).join('')}</div></div>`;
+  return `<section class="card">
+    <div class="card-head"><h3>${title}</h3><span class="count">${n ? `차이 ${n}개 · 공통 ${d.same.length}개` : `차이 없음 · 공통 ${d.same.length}개`}</span></div>
+    ${row('B에만 있음', 'add', d.onlyB, t => tagChip(t, 'add'), d.onlyB.map(t => t.text).join(', '))}
+    ${row('A에만 있음', 'del', d.onlyA, t => tagChip(t, 'del'), d.onlyA.map(t => t.text).join(', '))}
+    ${row('가중치가 다름', 'chg', d.changed, ([a, b]) => `<button class="chip chg" data-copy="${clip(a.text)}" title="클릭하여 복사">${esc(a.text)}<span class="cw">${fmtW(a.w)} → ${fmtW(b.w)}</span></button>`)}
+    ${d.same.length ? `<details class="dsame"${n ? '' : ' open'}><summary>공통 태그 ${d.same.length}개</summary><div class="chips">${d.same.map(t => tagChip(t, '')).join('')}</div></details>` : ''}
+  </section>`;
+}
+function settingsDiff(ga, gb) {
+  const A = new Map(ga.settings.map(s => [s[0], s[1]])), B = new Map(gb.settings.map(s => [s[0], s[1]]));
+  const keys = [...new Set([...A.keys(), ...B.keys()])].filter(k => k !== '생성 소요 시간');
+  if (!keys.length) return '';
+  const diff = keys.filter(k => A.get(k) !== B.get(k));
+  return `<section class="card"><div class="card-head"><h3>생성 설정</h3><span class="count">${diff.length ? `다른 항목 ${diff.length}개 · 같은 항목 ${keys.length - diff.length}개` : '모두 같음'}</span></div>
+    ${diff.length ? `<table class="dtable"><tr><th></th><th>A</th><th>B</th></tr>${diff.map(k => `<tr><th>${esc(k)}</th><td>${esc(A.get(k) ?? '–')}</td><td>${esc(B.get(k) ?? '–')}</td></tr>`).join('')}</table>` : ''}</section>`;
+}
+function renderCompare() {
+  const { a, b } = state.compare, ga = a.result?.gen, gb = b.result?.gen;
+  const side = (it, ab) => `<div class="cside ${ab}"><div class="cimg ${noMeta(it) ? 'nometa' : ''}"><img src="${it.url}" alt=""></div><span class="ab">${ab.toUpperCase()}</span>
+    <div class="cname">${esc(it.path || it.file.name)}${!it.result ? ' · 분석 중' : noMeta(it) ? ' · <b class="nm">메타데이터 없음</b>' : ''}</div></div>`;
+  let body = '';
+  if (!a.result || !b.result) body = '<div class="loading">분석 중…</div>';
+  else if (!ga || !gb) body = `<div class="notice"><b>${!ga && !gb ? '두 이미지 모두' : !ga ? 'A 이미지에' : 'B 이미지에'} 생성 정보가 없어서 태그를 비교할 수 없습니다.</b></div>`;
+  else {
+    body += diffSection('긍정 프롬프트', flatTags(ga.positive, ga.kind), flatTags(gb.positive, gb.kind));
+    body += diffSection('부정 프롬프트', flatTags(ga.negative, ga.kind), flatTags(gb.negative, gb.kind));
+    const n = Math.max(ga.chars?.length || 0, gb.chars?.length || 0);
+    for (let i = 0; i < n; i++) {
+      const ca = ga.chars?.[i] || {}, cb = gb.chars?.[i] || {};
+      body += diffSection(`캐릭터 ${i + 1} · 긍정`, flatTags(ca.positive, ga.kind), flatTags(cb.positive, gb.kind));
+      body += diffSection(`캐릭터 ${i + 1} · 부정`, flatTags(ca.negative, ga.kind), flatTags(cb.negative, gb.kind));
+    }
+    body += settingsDiff(ga, gb);
+  }
+  return `<div class="cmp">
+    <div class="chead">${side(a, 'a')}<button class="btn" id="cmpSwap" title="A와 B 바꾸기">⇄</button>${side(b, 'b')}</div>
+    <div class="cbar"><span>A가 기준입니다. 썸네일을 클릭하거나 ← → 키로 B(비교 대상)를 바꿉니다.</span><button class="btn sm" id="cmpExit">비교 끝내기</button></div>
+    ${body}
+  </div>`;
+}
+
 function render() {
   clips = [];
   const main = $('#main');
@@ -971,6 +1214,7 @@ function render() {
     </div>`;
     return;
   }
+  if (state.compare) { main.innerHTML = renderCompare(); return; }
   const item = state.items[state.current];
   if (!item.result) { main.innerHTML = '<div class="loading">분석 중…</div>'; return; }
   const r = item.result, g = r.gen;
@@ -1096,13 +1340,22 @@ async function addFiles(files) {
     const i = state.items.indexOf(it);
     if (i < 0) return; // 분석 중에 "모두 지우기"를 누른 경우
     updateThumb(i);
-    if (i === state.current) render();
+    if (searching()) markActive();
+    if (i === state.current || (state.compare && (it === state.compare.a || it === state.compare.b))) render();
   }
 }
 
 $('#btnOpen').onclick = () => $('#fileInput').click();
 $('#fileInput').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
-$('#btnClear').onclick = () => { viewer.close(); state.items.forEach(it => URL.revokeObjectURL(it.url)); state.items = []; state.current = -1; renderStrip(); render(); };
+$('#btnClear').onclick = () => { viewer.close(); state.compare = null; updateCompareBtn(); state.items.forEach(it => URL.revokeObjectURL(it.url)); state.items = []; state.current = -1; renderStrip(); render(); };
+$('#q').addEventListener('input', e => { setQuery(e.target.value); $('#qClear').hidden = !e.target.value; applySearch(); });
+$('#q').addEventListener('keydown', e => {
+  if (e.key === 'Enter') e.target.blur();
+  else if (e.key === 'Escape') { if (e.target.value) $('#qClear').click(); else e.target.blur(); }
+});
+$('#qClear').onclick = () => { $('#q').value = ''; setQuery(''); $('#qClear').hidden = true; applySearch(); $('#q').focus(); };
+$('#qScope').onchange = e => { state.q.scope = e.target.value; applySearch(); };
+$('#btnCompare').onclick = () => state.compare ? endCompare() : startCompare();
 $('#sortSel').onchange = e => {
   state.sort = e.target.value;
   try { localStorage.setItem('imv-sort', state.sort); } catch {}
@@ -1173,8 +1426,8 @@ const viewer = (() => {
     else if (v === 'out') zoomCenter(0.8);
     else if (v === 'fit') fit();
     else if (v === 'one') { s = 1; center(); apply(); }
-    else if (v === 'prev') select(state.current - 1);
-    else if (v === 'next') select(state.current + 1);
+    else if (v === 'prev') go(-1);
+    else if (v === 'next') go(1);
     else if (v === 'close') api.close();
   });
 
@@ -1184,8 +1437,8 @@ const viewer = (() => {
       const it = state.items[state.current];
       if (!it) return api.close();
       $('#vName').textContent = `${state.current + 1} / ${state.items.length} · ${it.file.name}`;
-      box.querySelector('.prev').disabled = state.current <= 0;
-      box.querySelector('.next').disabled = state.current >= state.items.length - 1;
+      box.querySelector('.prev').disabled = step(state.current, -1) < 0;
+      box.querySelector('.next').disabled = step(state.current, 1) < 0;
       if (img.src !== it.url) img.src = it.url; else fit();
     },
     show() { box.hidden = false; document.body.style.overflow = 'hidden'; api.load(); },
@@ -1242,8 +1495,10 @@ document.addEventListener('keydown', e => {
   if (e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return;
   if (e.target.closest?.('input, textarea, select, [contenteditable]')) return;
   if (viewer.open && viewer.key(e)) { e.preventDefault(); return; }
-  if (e.key === 'ArrowLeft') { e.preventDefault(); select(state.current - 1); }
-  else if (e.key === 'ArrowRight') { e.preventDefault(); select(state.current + 1); }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); go(1); }
+  else if (e.key === '/' && state.items.length > 1) { e.preventDefault(); $('#q').focus(); }
+  else if (e.key === 'Escape' && state.compare) endCompare();
 });
 $('#btnTags').onclick = () => {
   state.tagView = !state.tagView;
@@ -1262,7 +1517,9 @@ document.addEventListener('click', e => {
   const c = e.target.closest('[data-copy]');
   if (c) { copyText(clips[+c.dataset.copy]); return; }
   const t = e.target.closest('.thumb');
-  if (t) { select(+t.dataset.idx); return; }
+  if (t) { state.compare ? setB(state.items[+t.dataset.idx]) : select(+t.dataset.idx); return; }
+  if (e.target.closest('#cmpSwap')) { swapAB(); return; }
+  if (e.target.closest('#cmpExit')) { endCompare(); return; }
   if (e.target.closest('#drop')) { $('#fileInput').click(); return; }
   if (e.target.id === 'previewImg') viewer.show();
 });
