@@ -146,6 +146,22 @@ details.menu[open] > summary { border-color: var(--accent); }
   border: 1px dashed var(--border); border-radius: 6px; background: var(--panel); color: var(--text);
 }
 .cin:focus { outline: 2px solid var(--accent-soft); border-style: solid; border-color: var(--accent); }
+/* 태그 합성: 탭 · 모델 양식 · 캐릭터 위치 */
+.ctabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px 14px 0; }
+.ctab { border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 999px; padding: 2px 10px; font-size: 12px; cursor: pointer; }
+.ctab .dn { margin-left: 5px; padding: 0 6px; border-radius: 999px; background: var(--panel2); color: var(--muted); font-size: 11px; font-weight: 400; }
+.ctab.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.ctab.add { border-style: dashed; color: var(--muted); }
+.cmodel { display: flex; align-items: center; gap: 8px; padding: 10px 14px 0; font-size: 12px; color: var(--muted); }
+.cmodel .sel { flex: 1; min-width: 0; padding: 3px 6px; font-size: 12px; }
+.cpos { display: flex; gap: 12px; align-items: flex-start; padding: 10px 14px 4px; }
+.cgrid5 { display: grid; grid-template-columns: repeat(5, 18px); grid-auto-rows: 18px; gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel2); flex: 0 0 auto; }
+.cgrid5 button { border: 0; border-radius: 3px; padding: 0; background: var(--panel); cursor: pointer; }
+.cgrid5 button:hover { background: var(--accent-soft); }
+.cgrid5 button.on { background: var(--accent); }
+.cgrid5.off { opacity: .45; }
+.cpos-side { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 12px; }
+.cpos-side .seg { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .wpick {
   margin-left: 6px; padding: 0 5px; border: 1px solid var(--hit); border-radius: 4px; background: var(--panel); cursor: pointer;
   font: 700 11px ui-monospace, Consolas, monospace; color: var(--hw);
@@ -1591,23 +1607,76 @@ function addToCompose({ title, list }, focusSec) {
     if (e) e.w = t.w; else { sec.tags.push({ key: t.key, text: t.text, w: t.w }); added++; }
   });
   toast(added ? `태그 ${added}개를 담았습니다 · 한 번 더 누르면 복사` : '가중치를 바꿔 담았습니다');
+  state.composeTab = title.startsWith('캐릭터') ? title.split(' · ')[0] : title; // 담은 칸의 탭으로 이동
   renderCompose(focusSec);
 }
+// NAI 캐릭터는 최대 6명
+const MAX_CHARS = 6;
+const charNo = title => +(String(title).match(/^캐릭터 (\d+)/) || [])[1] || 0;
+function composeCharCount() {
+  return Math.min(MAX_CHARS, Math.max(state.composeChars || 0, ...(state.compareTitles || []).map(charNo), ...compose.filter(x => x.tags.length).map(x => charNo(x.title)), 0));
+}
+const composeA = () => state.compare?.a?.result?.gen;
+const composeCoords = () => state.composeCoords ?? composeA()?.comment?.v4_prompt?.use_coords ?? true;
+const composePos = n => state.composePos?.[n] || composeA()?.comment?.v4_prompt?.caption?.char_captions?.[n - 1]?.centers?.[0] || { x: 0.5, y: 0.5 };
+// NAI용 PNG 양식: 모델 해시는 이 뷰어가 확인한 값
+const COMPOSE_MODELS = [
+  { id: 'v5h', label: 'V5 Full · Effort High', ver: 'V5', hash: '0ADF9AB7' },
+  { id: 'v5m', label: 'V5 Full · Effort Medium', ver: 'V5', hash: '70AB5786' },
+  { id: 'v5c', label: 'V5 Curated', ver: 'V5', hash: 'DB276663' },
+  { id: 'v45f', label: 'V4.5 Full', ver: 'V4.5', hash: '4BDE2A90' },
+  { id: 'v45c', label: 'V4.5 Curated', ver: 'V4.5', hash: 'C02D4F98' },
+  { id: 'v4f', label: 'V4 Full', ver: 'V4', hash: '37442FCA' },
+  { id: 'v4c', label: 'V4 Curated', ver: 'V4', hash: '7ABFFA2A' },
+];
+function composeModel() {
+  const byId = COMPOSE_MODELS.find(m => m.id === state.composeModel);
+  if (byId) return byId;
+  const a = composeA(), src = a?.settings?.find(x => x[0] === '모델')?.[1] || '';
+  return COMPOSE_MODELS.find(m => src.toUpperCase().endsWith(m.hash)) || COMPOSE_MODELS.find(m => new RegExp(`\\b${m.ver.replace('.', '\\.')}\\b`).test(src)) || COMPOSE_MODELS[3];
+}
 function composeHTML() {
-  const sd = composeSd(), titles = new Set(SEC_BASE);
-  compose.forEach(x => x.tags.length && titles.add(x.title));
-  (state.compareTitles || []).forEach(t => titles.add(t));
-  const secs = [...titles].sort((a, b) => secRank(a) - secRank(b)).map(t => findSec(t) || { title: t, tags: [] });
-  const total = secs.reduce((n, x) => n + x.tags.length, 0);
+  const sd = composeSd(), nChars = composeCharCount(), nai = composeA()?.kind === 'nai';
+  const secOf = t => findSec(t) || { title: t, tags: [] };
+  const titles = [...SEC_BASE];
+  for (let i = 1; i <= nChars; i++) titles.push(`캐릭터 ${i} · 긍정`, `캐릭터 ${i} · 부정`);
+  const secs = titles.map(secOf), total = secs.reduce((n, x) => n + x.tags.length, 0);
   const all = secs.filter(x => x.tags.length).map(x => `[${x.title}]\n${x.tags.map(t => fmtTag(t, sd)).join(', ')}`).join('\n\n');
+  const tabs = [['긍정 프롬프트', '긍정'], ['부정 프롬프트', '부정']];
+  for (let i = 1; i <= nChars; i++) tabs.push([`캐릭터 ${i}`, `캐릭터 ${i}`]);
+  const tab = tabs.some(t => t[0] === state.composeTab) ? state.composeTab : '긍정 프롬프트';
+  const cnt = k => k.startsWith('캐릭터') ? secOf(`${k} · 긍정`).tags.length + secOf(`${k} · 부정`).tags.length : secOf(k).tags.length;
+  const secBlock = (title, label) => {
+    const x = secOf(title);
+    return `<div class="csec">
+      <div class="dlabel">${esc(label)} <span class="dn">${x.tags.length}개</span>${x.tags.length ? `<button class="btn sm" data-copy="${clip(x.tags.map(t => fmtTag(t, sd)).join(', '))}">복사</button>` : ''}</div>
+      ${x.tags.length ? `<div class="chips">${x.tags.map((t, i) => `<span class="chip ctag">${esc(t.text)}${t.w !== 1 ? `<span class="cw">×${fmtW(t.w)}</span>` : ''}<button class="x" data-rm="${esc(title)}|${i}" aria-label="${esc(t.text)} 빼기" title="빼기">×</button></span>`).join('')}</div>` : ''}
+      <input class="cin" data-sec="${esc(title)}" placeholder="태그 직접 입력 · 쉼표로 여러 개 · Enter" autocomplete="off" spellcheck="false" aria-label="${esc(title)}에 태그 직접 입력">
+    </div>`;
+  };
+  let body;
+  if (tab.startsWith('캐릭터')) {
+    const n = charNo(tab), pos = composePos(n), coords = composeCoords();
+    const cells = [];
+    for (let y = 0; y < 5; y++) for (let x = 0; x < 5; x++) {
+      const cx = Math.round((x * 0.2 + 0.1) * 10) / 10, cy = Math.round((y * 0.2 + 0.1) * 10) / 10;
+      const on = Math.abs(pos.x - cx) < 0.05 && Math.abs(pos.y - cy) < 0.05;
+      cells.push(`<button class="${on ? 'on' : ''}" data-cpos="${n}|${cx}|${cy}" title="${String.fromCharCode(65 + x)}${y + 1}" aria-label="위치 ${String.fromCharCode(65 + x)}${y + 1}"></button>`);
+    }
+    body = `<div class="cpos"><div class="cgrid5 ${coords ? '' : 'off'}">${cells.join('')}</div>
+        <div class="cpos-side"><b>캐릭터 ${n} 위치 ${coords ? posLabel(pos) : '(AI 자동)'}</b>
+          <span class="seg"><button class="btn sm" data-coords="1" aria-pressed="${coords}">직접 지정</button><button class="btn sm" data-coords="0" aria-pressed="${!coords}">AI 자동</button></span>
+          <span class="poslabel">AI 자동은 모든 캐릭터에 함께 적용됩니다</span>
+          <button class="btn sm" data-delchar="${n}">이 캐릭터 비우기</button></div></div>
+      ${secBlock(`${tab} · 긍정`, '긍정 프롬프트')}${secBlock(`${tab} · 부정`, '부정 프롬프트')}`;
+  } else body = secBlock(tab, tab);
+  const model = composeModel();
   return `<div class="card-head"><h3>태그 합성</h3><span class="count">${total}개</span>
-      ${total ? `<button class="btn sm" data-copy="${clip(all)}">전체 복사</button>${state.compare?.a?.result?.gen?.kind === 'nai' ? '<button class="btn sm" id="composePng" title="NAI에 끌어다 놓아 불러오기를 시험할 수 있는 PNG를 저장합니다">NAI용 PNG 저장</button>' : ''}<button class="btn sm" id="composeClear">비우기</button>` : ''}</div>
+      ${total ? `<button class="btn sm" data-copy="${clip(all)}">전체 복사</button>${nai ? '<button class="btn sm" id="composePng" title="NAI에 끌어다 놓아 불러오기를 시험할 수 있는 PNG를 저장합니다">NAI용 PNG 저장</button>' : ''}<button class="btn sm" id="composeClear">비우기</button>` : ''}</div>
+    ${nai ? `<div class="cmodel"><label for="composeModel">NAI용 PNG 양식</label><select class="sel" id="composeModel">${COMPOSE_MODELS.map(m => `<option value="${m.id}"${m.id === model.id ? ' selected' : ''}>${m.label}</option>`).join('')}</select></div>` : ''}
+    <div class="ctabs" role="tablist">${tabs.map(([k, l]) => `<button class="ctab ${k === tab ? 'on' : ''}" data-ctab="${esc(k)}" role="tab" aria-selected="${k === tab}">${esc(l)}<span class="dn">${cnt(k)}</span></button>`).join('')}${nChars < MAX_CHARS ? `<button class="ctab add" id="composeAddChar" title="캐릭터 추가 (최대 ${MAX_CHARS}명)">＋ 캐릭터</button>` : ''}</div>
     ${total ? '' : '<p class="empty-note">비교 결과의 태그를 클릭하면 여기에 담깁니다. B를 바꿔 가며 여러 이미지에서 모을 수 있고, 각 칸에 태그를 직접 입력할 수도 있습니다.</p>'}
-    ${secs.map(x => `<div class="csec">
-      <div class="dlabel">${esc(x.title)} <span class="dn">${x.tags.length}개</span>${x.tags.length ? `<button class="btn sm" data-copy="${clip(x.tags.map(t => fmtTag(t, sd)).join(', '))}">복사</button>` : ''}</div>
-      ${x.tags.length ? `<div class="chips">${x.tags.map((t, i) => `<span class="chip ctag">${esc(t.text)}${t.w !== 1 ? `<span class="cw">×${fmtW(t.w)}</span>` : ''}<button class="x" data-rm="${esc(x.title)}|${i}" aria-label="${esc(t.text)} 빼기" title="빼기">×</button></span>`).join('')}</div>` : ''}
-      <input class="cin" data-sec="${esc(x.title)}" placeholder="태그 직접 입력 · 쉼표로 여러 개 · Enter" autocomplete="off" spellcheck="false" aria-label="${esc(x.title)}에 태그 직접 입력">
-    </div>`).join('')}`;
+    ${body}`;
 }
 /* 태그 합성 결과를 NAI 형식 메타데이터가 담긴 PNG로 저장 (NAI에 끌어다 놓아 불러오기 테스트용)
    기준 이미지(A)의 생성 설정을 쓰고, 프롬프트만 합성 결과로 바꿈. 서명 · 레퍼런스 · img2img 정보는 뺌 */
@@ -1633,17 +1702,20 @@ function composedNaiComment() {
   const join = title => (findSec(title)?.tags || []).map(t => fmtTag(t, false)).join(', ');
   const pos = join('긍정 프롬프트'), neg = join('부정 프롬프트');
   const nums = [...new Set(compose.filter(x => x.tags.length).map(x => +(x.title.match(/^캐릭터 (\d+)/) || [])[1]).filter(Boolean))].sort((x, y) => x - y);
-  const aChars = c.v4_prompt?.caption?.char_captions || [];
-  const center = n => aChars[n - 1]?.centers || [{ x: 0.5, y: 0.5 }];
+  const center = n => [composePos(n)];
   c.prompt = pos;
   c.uc = neg;
-  c.v4_prompt = { ...(c.v4_prompt || {}), caption: { base_caption: pos, char_captions: nums.map(n => ({ char_caption: join(`캐릭터 ${n} · 긍정`), centers: center(n) })) } };
+  c.v4_prompt = { ...(c.v4_prompt || {}), caption: { base_caption: pos, char_captions: nums.map(n => ({ char_caption: join(`캐릭터 ${n} · 긍정`), centers: center(n) })) }, use_coords: composeCoords() };
   c.v4_negative_prompt = { ...(c.v4_negative_prompt || {}), caption: { base_caption: neg, char_captions: nums.map(n => ({ char_caption: join(`캐릭터 ${n} · 부정`), centers: center(n) })) } };
   ['signed_hash', 'characterPrompts', 'image', 'mask', 'reference_image_multiple', 'director_references', 'director_reference_images', 'director_reference_descriptions',
     'director_reference_strengths', 'director_reference_secondary_strengths', 'director_reference_information_extracted'].forEach(k => delete c[k]);
   c.reference_strength_multiple = [];
   c.reference_information_extracted_multiple = [];
   c.request_type = 'PromptGenerateRequest';
+  // 고른 양식(모델)에 맞춤: V5만 Comment 안에 모델 이름 · 해시와 tag_hint 항목이 있음
+  const m = composeModel();
+  if (m.ver === 'V5') { c.model_name = 'NovelAI Diffusion V5'; c.model_hash = m.hash; }
+  else ['model_name', 'model_hash', 'tag_hint_qt', 'tag_hint_uc_preset', 'tag_hint_transparent_background'].forEach(k => delete c[k]);
   return c;
 }
 async function saveComposedPng() {
@@ -1660,11 +1732,13 @@ async function saveComposedPng() {
   g.font = `${Math.round(fs * 0.6)}px system-ui, sans-serif`; g.fillText('태그 합성 결과 (메타데이터 테스트용)', w / 2, h / 2);
   g.fillStyle = '#5f6b7a'; g.fillText('NovelAI가 생성한 이미지가 아닙니다', w / 2, h / 2 + fs);
   const png = new Uint8Array(await (await new Promise(r => cv.toBlob(r, 'image/png'))).arrayBuffer()), iend = png.length - 12;
-  const source = a.settings.find(x => x[0] === '모델')?.[1];
+  const m = composeModel(), source = `NovelAI Diffusion ${m.ver} ${m.hash}`;
   const parts = [png.subarray(0, iend), pngTextChunk('Title', 'nai-meta-viewer tag composer'), pngTextChunk('Description', c.prompt), pngTextChunk('Software', 'NovelAI'),
-    ...(source ? [pngTextChunk('Source', source)] : []), pngTextChunk('Comment', asciiJSON(c)),
+    pngTextChunk('Source', source), pngTextChunk('Comment', asciiJSON(c)),
     pngTextChunk('nai-meta-viewer', '태그 합성 기능으로 만든 테스트 이미지입니다. NovelAI가 생성한 이미지가 아니며 서명이 없습니다.'), png.subarray(iend)];
   saveFile(`nai-meta-composed-${stampNow()}.png`, new Blob(parts, { type: 'image/png' }), 'image/png');
+  const nChar = c.v4_prompt.caption.char_captions.length;
+  toast(`NAI용 PNG 저장 · ${m.label} · 긍정 ${countTags(parsePrompt(c.prompt))} · 부정 ${countTags(parsePrompt(c.uc))} · 캐릭터 ${nChar}명`, 3500);
 }
 
 // 비교 결과에서 이미 담긴 태그 · 버튼에 표시
@@ -2316,6 +2390,7 @@ $('#strip').addEventListener('pointerout', e => {
 });
 $('#strip').addEventListener('scroll', () => { tip.hidden = true; });
 
+$('#main').addEventListener('change', e => { if (e.target.id === 'composeModel') { state.composeModel = e.target.value; renderCompose(); } });
 /* 태그 합성: 칸에 직접 입력하고 Enter */
 $('#main').addEventListener('keydown', e => {
   const c = e.target.closest('.cin');
@@ -2360,6 +2435,23 @@ document.addEventListener('click', e => {
   if (rm) { const k = rm.dataset.rm.lastIndexOf('|'), sec = findSec(rm.dataset.rm.slice(0, k)); sec?.tags.splice(+rm.dataset.rm.slice(k + 1), 1); renderCompose(); return; }
   if (e.target.closest('#composeClear')) { compose.length = 0; renderCompose(); return; }
   if (e.target.closest('#composePng')) { saveComposedPng(); return; }
+  const ct = e.target.closest('[data-ctab]');
+  if (ct) { state.composeTab = ct.dataset.ctab; renderCompose(); return; }
+  if (e.target.closest('#composeAddChar')) {
+    const n = composeCharCount() + 1;
+    state.composeChars = n; state.composeTab = `캐릭터 ${n}`; renderCompose(); return;
+  }
+  const cp = e.target.closest('[data-cpos]');
+  if (cp) { const [n, x, y] = cp.dataset.cpos.split('|').map(Number); (state.composePos ||= {})[n] = { x, y }; state.composeCoords = true; renderCompose(); return; }
+  const cc = e.target.closest('[data-coords]');
+  if (cc) { state.composeCoords = cc.dataset.coords === '1'; renderCompose(); return; }
+  const dc = e.target.closest('[data-delchar]');
+  if (dc) {
+    const n = +dc.dataset.delchar;
+    compose.forEach(x => { if (charNo(x.title) === n) x.tags.length = 0; });
+    if (n === composeCharCount() && (state.composeChars || 0) >= n) { state.composeChars = n - 1; state.composeTab = n > 1 ? `캐릭터 ${n - 1}` : '긍정 프롬프트'; }
+    renderCompose(); return;
+  }
   const cv = e.target.closest('[data-cmpview]');
   if (cv && state.compare) { viewer.show(state.compare[cv.dataset.cmpview]); return; }
   const at = e.target.closest('[data-att]');
