@@ -798,7 +798,7 @@ const refList = r => [
 const refText = g => g?.refs ? (refList(g.refs).join(' · ') || '사용 안 함') : '';
 const V5_EFFORT = { '0ADF9AB7': 'High', '70AB5786': 'Medium' };
 const QUALITY_TAGS = { 0: 'None', 1: 'Standard' };
-const UC_PRESETS = { 2: 'Heavy', 4: 'Human Focus', 5: 'Furry Focus' };
+const UC_PRESETS = { 0: 'None', 2: 'Heavy', 3: 'Light', 4: 'Human Focus', 5: 'Furry Focus' };
 
 function parseNAI(f) {
   const c = typeof f.Comment === 'string' ? tryJSON(f.Comment) : f.Comment;
