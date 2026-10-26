@@ -417,6 +417,7 @@ pre { margin: 0; padding: 8px 14px 12px; font-size: 12px; white-space: pre-wrap;
     <option value="date-asc">날짜순 (오래된 것부터)</option>
     <option value="date-desc">날짜순 (최신 것부터)</option>
   </select>
+  <button class="btn" id="btnDropNoMeta" hidden title="메타데이터가 없는 이미지를 목록에서 뺍니다 (파일은 지워지지 않음)"></button>
   <button class="btn" id="btnClear" hidden>모두 지우기</button>
   <button class="btn primary" id="btnOpen">이미지 열기</button>
   <input type="file" id="fileInput" accept="image/*,.png,.jpg,.jpeg,.webp,.zip,application/zip" multiple hidden>
@@ -1137,7 +1138,25 @@ const itemId = it => `${it.path || it.file.name}|${it.file.size}|${it.file.lastM
 const isFav = it => favs.has(itemId(it));
 const favTag = it => isFav(it) ? '<span class="fv">★</span>' : '';
 const thumbTitle = (it, i) => `${i + 1}. ${it.path || it.file.name}${noMeta(it) ? ' · 메타데이터 없음' : ''}${it.result?.gen?.refs && refList(it.result.gen.refs).length ? ' · 레퍼런스: ' + refText(it.result.gen) : ''}`;
+// 메타데이터 없는 이미지 개수 버튼 (분석이 끝난 이미지 기준)
+function updateDropBtn() {
+  const n = state.items.filter(noMeta).length, b = $('#btnDropNoMeta');
+  b.hidden = !n;
+  b.textContent = `메타데이터 없는 ${n}장 빼기`;
+}
+function removeItems(list) {
+  if (!list.length) return;
+  const drop = new Set(list), cur = state.items[state.current], at = state.current;
+  list.forEach(it => URL.revokeObjectURL(it.url));
+  state.items = state.items.filter(it => !drop.has(it));
+  if (state.compare && (drop.has(state.compare.a) || drop.has(state.compare.b))) { state.compare = null; updateCompareBtn(); }
+  viewer.close();
+  state.current = cur && !drop.has(cur) ? state.items.indexOf(cur) : Math.min(at, state.items.length - 1);
+  renderStrip();
+  render();
+}
 function renderStrip() {
+  updateDropBtn();
   $('#btnClear').hidden = state.items.length === 0;
   $('#sortSel').hidden = state.items.length < 2;
   $('#stripWrap').classList.toggle('show', state.items.length > 1);
@@ -1152,6 +1171,7 @@ function updateThumb(i) {
   t.insertAdjacentHTML('beforeend', genTag(it) + favTag(it));
   t.classList.toggle('nometa', noMeta(it));
   t.title = thumbTitle(it, i);
+  updateDropBtn();
 }
 function markActive() {
   const cmp = state.compare;
@@ -1581,10 +1601,11 @@ async function addFiles(files) {
   render();
   if (viewer.open) viewer.load();
   for (const it of added) {
+    if (!state.items.includes(it)) continue; // 분석 전에 목록에서 뺀 이미지
     try { it.result = await analyze(it.file); }
     catch (e) { it.result = { format: '?', width: 0, height: 0, texts: [], chunks: [], errors: [e.message], gen: null }; }
     const i = state.items.indexOf(it);
-    if (i < 0) return; // 분석 중에 "모두 지우기"를 누른 경우
+    if (i < 0) continue; // 분석 중에 목록에서 뺀 경우
     updateThumb(i);
     if (filtering() || state.stats.open) markActive();
     if (i === state.current || (state.compare && (it === state.compare.a || it === state.compare.b))) render();
@@ -1593,6 +1614,11 @@ async function addFiles(files) {
 
 $('#btnOpen').onclick = () => $('#fileInput').click();
 $('#fileInput').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
+$('#btnDropNoMeta').onclick = () => {
+  const list = state.items.filter(noMeta);
+  removeItems(list);
+  toast(`메타데이터 없는 ${list.length}장을 목록에서 뺐습니다`);
+};
 $('#btnClear').onclick = () => { viewer.close(); state.compare = null; updateCompareBtn(); state.items.forEach(it => URL.revokeObjectURL(it.url)); state.items = []; state.current = -1; renderStrip(); render(); };
 $('#q').addEventListener('input', e => { setQuery(e.target.value); $('#qClear').hidden = !e.target.value; applySearch(); });
 $('#q').addEventListener('keydown', e => {
