@@ -1258,7 +1258,7 @@ function refsCard(g) {
   const inp = r.input ? `<div class="rline">${esc(r.input)} · 강도 ${num(r.strength)} · 노이즈 ${num(r.noise)}</div>` : '';
   return `<section class="card"><div class="card-head"><h3>레퍼런스 · 이미지 입력</h3><span class="count">${esc(refText(g))}</span></div>
     <table class="rtable">${row('바이브 트랜스퍼', r.vibes.length, vib)}${row('캐릭터 레퍼런스', r.chars.length, chr)}${row('이미지 입력', r.input, inp, '<span class="rline muted">일반 생성</span>')}</table>
-    ${r.vibes.some(v => v.info == null) ? '<p class="empty-note">바이브의 정보 추출(Information Extracted) 값은 V4 이후 메타데이터에 남지 않아 확인할 수 없습니다.</p>' : ''}</section>`;
+    ${r.vibes.some(v => v.info == null) ? '<p class="empty-note">바이브의 정보 추출(Information Extracted) 값은 V4.5에서는 메타데이터에 남지 않아 확인할 수 없습니다.</p>' : ''}</section>`;
 }
 
 function extraValue(v) {
