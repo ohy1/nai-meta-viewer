@@ -1601,7 +1601,7 @@ function composeHTML() {
   const total = secs.reduce((n, x) => n + x.tags.length, 0);
   const all = secs.filter(x => x.tags.length).map(x => `[${x.title}]\n${x.tags.map(t => fmtTag(t, sd)).join(', ')}`).join('\n\n');
   return `<div class="card-head"><h3>태그 합성</h3><span class="count">${total}개</span>
-      ${total ? `<button class="btn sm" data-copy="${clip(all)}">전체 복사</button><button class="btn sm" id="composeClear">비우기</button>` : ''}</div>
+      ${total ? `<button class="btn sm" data-copy="${clip(all)}">전체 복사</button>${state.compare?.a?.result?.gen?.kind === 'nai' ? '<button class="btn sm" id="composePng" title="NAI에 끌어다 놓아 불러오기를 시험할 수 있는 PNG를 저장합니다">NAI용 PNG 저장</button>' : ''}<button class="btn sm" id="composeClear">비우기</button>` : ''}</div>
     ${total ? '' : '<p class="empty-note">비교 결과의 태그를 클릭하면 여기에 담깁니다. B를 바꿔 가며 여러 이미지에서 모을 수 있고, 각 칸에 태그를 직접 입력할 수도 있습니다.</p>'}
     ${secs.map(x => `<div class="csec">
       <div class="dlabel">${esc(x.title)} <span class="dn">${x.tags.length}개</span>${x.tags.length ? `<button class="btn sm" data-copy="${clip(x.tags.map(t => fmtTag(t, sd)).join(', '))}">복사</button>` : ''}</div>
@@ -1609,6 +1609,64 @@ function composeHTML() {
       <input class="cin" data-sec="${esc(x.title)}" placeholder="태그 직접 입력 · 쉼표로 여러 개 · Enter" autocomplete="off" spellcheck="false" aria-label="${esc(x.title)}에 태그 직접 입력">
     </div>`).join('')}`;
 }
+/* 태그 합성 결과를 NAI 형식 메타데이터가 담긴 PNG로 저장 (NAI에 끌어다 놓아 불러오기 테스트용)
+   기준 이미지(A)의 생성 설정을 쓰고, 프롬프트만 합성 결과로 바꿈. 서명 · 레퍼런스 · img2img 정보는 뺌 */
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+  return t;
+})();
+const crc32 = u8 => { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+function pngTextChunk(key, text) {
+  const k = new TextEncoder().encode(key), v = new TextEncoder().encode(text), n = k.length + 1 + v.length;
+  const chunk = new Uint8Array(12 + n), dv = new DataView(chunk.buffer);
+  dv.setUint32(0, n);
+  chunk.set([0x74, 0x45, 0x58, 0x74], 4); // tEXt
+  chunk.set(k, 8); chunk.set(v, 9 + k.length);
+  dv.setUint32(8 + n, crc32(chunk.subarray(4, 8 + n)));
+  return chunk;
+}
+// NAI처럼 ASCII만 쓰는 JSON (한글 등은 \uXXXX)
+const asciiJSON = o => JSON.stringify(o).replace(/[\u007f-￿]/g, ch => '\\u' + ch.charCodeAt(0).toString(16).padStart(4, '0'));
+function composedNaiComment() {
+  const c = JSON.parse(JSON.stringify(state.compare.a.result.gen.comment));
+  const join = title => (findSec(title)?.tags || []).map(t => fmtTag(t, false)).join(', ');
+  const pos = join('긍정 프롬프트'), neg = join('부정 프롬프트');
+  const nums = [...new Set(compose.filter(x => x.tags.length).map(x => +(x.title.match(/^캐릭터 (\d+)/) || [])[1]).filter(Boolean))].sort((x, y) => x - y);
+  const aChars = c.v4_prompt?.caption?.char_captions || [];
+  const center = n => aChars[n - 1]?.centers || [{ x: 0.5, y: 0.5 }];
+  c.prompt = pos;
+  c.uc = neg;
+  c.v4_prompt = { ...(c.v4_prompt || {}), caption: { base_caption: pos, char_captions: nums.map(n => ({ char_caption: join(`캐릭터 ${n} · 긍정`), centers: center(n) })) } };
+  c.v4_negative_prompt = { ...(c.v4_negative_prompt || {}), caption: { base_caption: neg, char_captions: nums.map(n => ({ char_caption: join(`캐릭터 ${n} · 부정`), centers: center(n) })) } };
+  ['signed_hash', 'characterPrompts', 'image', 'mask', 'reference_image_multiple', 'director_references', 'director_reference_images', 'director_reference_descriptions',
+    'director_reference_strengths', 'director_reference_secondary_strengths', 'director_reference_information_extracted'].forEach(k => delete c[k]);
+  c.reference_strength_multiple = [];
+  c.reference_information_extracted_multiple = [];
+  c.request_type = 'PromptGenerateRequest';
+  return c;
+}
+async function saveComposedPng() {
+  const a = state.compare?.a?.result?.gen;
+  if (a?.kind !== 'nai' || !a.comment) { toast('NAI 이미지를 기준(A)으로 비교할 때만 만들 수 있습니다', 2500); return; }
+  const c = composedNaiComment(), w = Math.min(+c.width || 832, 2048), h = Math.min(+c.height || 1216, 2048);
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  const g = cv.getContext('2d'), grd = g.createLinearGradient(0, 0, 0, h), fs = Math.max(16, Math.round(w / 18));
+  grd.addColorStop(0, '#e8ecfd'); grd.addColorStop(1, '#f5f6f8');
+  g.fillStyle = grd; g.fillRect(0, 0, w, h);
+  g.textAlign = 'center';
+  g.fillStyle = '#1b1f24'; g.font = `700 ${fs}px system-ui, sans-serif`; g.fillText('nai-meta-viewer', w / 2, h / 2 - fs);
+  g.font = `${Math.round(fs * 0.6)}px system-ui, sans-serif`; g.fillText('태그 합성 결과 (메타데이터 테스트용)', w / 2, h / 2);
+  g.fillStyle = '#5f6b7a'; g.fillText('NovelAI가 생성한 이미지가 아닙니다', w / 2, h / 2 + fs);
+  const png = new Uint8Array(await (await new Promise(r => cv.toBlob(r, 'image/png'))).arrayBuffer()), iend = png.length - 12;
+  const source = a.settings.find(x => x[0] === '모델')?.[1];
+  const parts = [png.subarray(0, iend), pngTextChunk('Title', 'nai-meta-viewer tag composer'), pngTextChunk('Description', c.prompt), pngTextChunk('Software', 'NovelAI'),
+    ...(source ? [pngTextChunk('Source', source)] : []), pngTextChunk('Comment', asciiJSON(c)),
+    pngTextChunk('nai-meta-viewer', '태그 합성 기능으로 만든 테스트 이미지입니다. NovelAI가 생성한 이미지가 아니며 서명이 없습니다.'), png.subarray(iend)];
+  saveFile(`nai-meta-composed-${stampNow()}.png`, new Blob(parts, { type: 'image/png' }), 'image/png');
+}
+
 // 비교 결과에서 이미 담긴 태그 · 버튼에 표시
 function markPicked() {
   document.querySelectorAll('#main [data-add]').forEach(el => {
@@ -2301,6 +2359,7 @@ document.addEventListener('click', e => {
   const rm = e.target.closest('[data-rm]');
   if (rm) { const k = rm.dataset.rm.lastIndexOf('|'), sec = findSec(rm.dataset.rm.slice(0, k)); sec?.tags.splice(+rm.dataset.rm.slice(k + 1), 1); renderCompose(); return; }
   if (e.target.closest('#composeClear')) { compose.length = 0; renderCompose(); return; }
+  if (e.target.closest('#composePng')) { saveComposedPng(); return; }
   const cv = e.target.closest('[data-cmpview]');
   if (cv && state.compare) { viewer.show(state.compare[cv.dataset.cmpview]); return; }
   const at = e.target.closest('[data-att]');
