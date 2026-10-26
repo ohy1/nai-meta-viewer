@@ -830,7 +830,7 @@ function parseNAI(f) {
 
   const used = new Set(['prompt', 'uc', 'v4_prompt', 'v4_negative_prompt', 'characterPrompts', 'width', 'height', 'steps', 'scale',
     'cfg_rescale', 'seed', 'sampler', 'noise_schedule', 'skip_cfg_above_sigma', 'request_type', 'n_samples',
-    'model_name', 'model_hash', 'tag_hint_qt', 'tag_hint_uc_preset', 'reference_strength_multiple', 'reference_information_extracted_multiple',
+    'model_name', 'model_hash', 'tag_hint_qt', 'tag_hint_uc_preset', 'tag_hint_transparent_background', 'reference_strength_multiple', 'reference_information_extracted_multiple',
     'reference_image_multiple', 'director_references', 'director_reference_strengths', 'director_reference_descriptions',
     'director_reference_secondary_strengths', 'director_reference_information_extracted', 'director_reference_images']);
   // 모델: Source가 없으면 Comment의 model_name (V5부터). V5는 Effort마다 모델 해시가 다름
@@ -860,6 +860,7 @@ function parseNAI(f) {
   }
   if (c.tag_hint_qt != null) add('품질 태그', QUALITY_TAGS[c.tag_hint_qt] ?? `${c.tag_hint_qt}번`);
   if (c.tag_hint_uc_preset != null) add('UC 프리셋', UC_PRESETS[c.tag_hint_uc_preset] ?? `${c.tag_hint_uc_preset}번`);
+  if (c.tag_hint_transparent_background === true) add('투명 배경', '켜짐', 'transparent'); // V5 Transparent BG
   add('요청 유형', c.request_type);
   if (f['Generation time']) add('생성 소요 시간', `${(+f['Generation time']).toFixed(2)}초`, f['Generation time']);
   if (f.Software && f.Software !== 'NovelAI') add('소프트웨어', f.Software);
@@ -1239,11 +1240,11 @@ state.q = { inc: [], exc: [], sInc: [], sExc: [], scope: 'all' };
 let qRe = null;
 // 설정 검색: seed:1234, steps:>=28, sampler:euler, model:v4.5, size:832x1216
 const SKEYS = { seed: 'seed', steps: 'steps', step: 'steps', scale: 'scale', cfg: 'scale', guidance: 'scale', rescale: 'rescale',
-  sampler: 'sampler', schedule: 'schedule', scheduler: 'schedule', model: 'model', size: 'size', res: 'size', effort: 'effort', ref: 'ref', variant: 'model' };
+  sampler: 'sampler', schedule: 'schedule', scheduler: 'schedule', model: 'model', size: 'size', res: 'size', effort: 'effort', ref: 'ref', variant: 'model', bg: 'bg' };
 const SLABEL = { '시드': 'seed', 'Seed': 'seed', 'seed': 'seed', 'noise_seed': 'seed', '스텝': 'steps', 'Steps': 'steps', 'steps': 'steps',
   '프롬프트 가이던스': 'scale', 'CFG scale': 'scale', 'cfg': 'scale', '가이던스 리스케일': 'rescale', '샘플러': 'sampler', 'Sampler': 'sampler',
   'sampler_name': 'sampler', '노이즈 스케줄': 'schedule', 'Schedule type': 'schedule', 'scheduler': 'schedule', '모델': 'model', 'Model': 'model',
-  '해상도': 'size', 'Size': 'size', 'Effort': 'effort' };
+  '해상도': 'size', 'Size': 'size', 'Effort': 'effort', '투명 배경': 'bg' };
 const NUM_KEYS = ['seed', 'steps', 'scale', 'rescale'];
 const normSize = v => v.replace(/\s*[×x]\s*/g, 'x');
 function parseSetting(term) {
