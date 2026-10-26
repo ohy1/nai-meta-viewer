@@ -796,7 +796,14 @@ const refList = r => [
   r.input,
 ].filter(Boolean);
 const refText = g => g?.refs ? (refList(g.refs).join(' · ') || '사용 안 함') : '';
-const V5_EFFORT = { '0ADF9AB7': 'High', '70AB5786': 'Medium' };
+// 모델 해시로 알 수 있는 정보: Full / Curated, V5 Full은 Effort마다 해시가 다름
+const MODEL_HASHES = {
+  '0ADF9AB7': { variant: 'Full', effort: 'High' },     // V5
+  '70AB5786': { variant: 'Full', effort: 'Medium' },   // V5
+  'DB276663': { variant: 'Curated' },                  // V5
+  'C02D4F98': { variant: 'Curated' },                  // V4.5
+  '7ABFFA2A': { variant: 'Curated' },                  // V4
+};
 const QUALITY_TAGS = { 0: 'None', 1: 'Standard' };
 const UC_PRESETS = { 0: 'None', 2: 'Heavy', 3: 'Light', 4: 'Human Focus', 5: 'Furry Focus' };
 
@@ -828,10 +835,11 @@ function parseNAI(f) {
   const source = f.Source || [c.model_name, c.model_hash].filter(Boolean).join(' ');
   const hash = (c.model_hash || (source.match(/\b([0-9A-F]{8})$/i) || [])[1] || '').toUpperCase();
   const modelName = c.model_name || source.replace(/\s+[0-9A-F]{8}$/i, '');
-  const effort = /\bV5\b/i.test(modelName) && hash ? V5_EFFORT[hash] || `알 수 없음 (해시 ${hash})` : '';
+  const known = MODEL_HASHES[hash] || {}, effort = known.effort || '';
   const S = [];
   const add = (k, v, raw) => { if (v !== undefined && v !== null && v !== '') S.push([k, String(v), raw]); };
   add('모델', source);
+  add('모델 종류', known.variant);
   add('Effort', effort);
   if (c.width && c.height) add('해상도', `${c.width} × ${c.height}`);
   add('스텝', c.steps);
@@ -855,7 +863,7 @@ function parseNAI(f) {
   return {
     positive, negative, chars, settings: S, extra, refs: naiRefs(c),
     useCoords: c.v4_prompt?.use_coords ?? c.use_coords, useOrder: c.v4_prompt?.use_order,
-    model: modelName + (V5_EFFORT[hash] && effort ? ` · Effort ${effort}` : ''), comment: c,
+    model: modelName + (known.variant ? ` ${known.variant}` : '') + (effort ? ` · Effort ${effort}` : ''), comment: c,
   };
 }
 
@@ -1226,7 +1234,7 @@ state.q = { inc: [], exc: [], sInc: [], sExc: [], scope: 'all' };
 let qRe = null;
 // 설정 검색: seed:1234, steps:>=28, sampler:euler, model:v4.5, size:832x1216
 const SKEYS = { seed: 'seed', steps: 'steps', step: 'steps', scale: 'scale', cfg: 'scale', guidance: 'scale', rescale: 'rescale',
-  sampler: 'sampler', schedule: 'schedule', scheduler: 'schedule', model: 'model', size: 'size', res: 'size', effort: 'effort', ref: 'ref' };
+  sampler: 'sampler', schedule: 'schedule', scheduler: 'schedule', model: 'model', size: 'size', res: 'size', effort: 'effort', ref: 'ref', variant: 'model' };
 const SLABEL = { '시드': 'seed', 'Seed': 'seed', 'seed': 'seed', 'noise_seed': 'seed', '스텝': 'steps', 'Steps': 'steps', 'steps': 'steps',
   '프롬프트 가이던스': 'scale', 'CFG scale': 'scale', 'cfg': 'scale', '가이던스 리스케일': 'rescale', '샘플러': 'sampler', 'Sampler': 'sampler',
   'sampler_name': 'sampler', '노이즈 스케줄': 'schedule', 'Schedule type': 'schedule', 'scheduler': 'schedule', '모델': 'model', 'Model': 'model',
@@ -1246,6 +1254,7 @@ function itemSettings(it) {
     const key = SLABEL[k];
     if (key && !(key in out)) out[key] = normTag(String(v)) + (raw != null && String(raw) !== String(v) ? ' ' + normTag(String(raw)) : '');
   }
+  if (out.model && g.model) out.model += ' ' + normTag(g.model); // model:curated · model:full 로도 찾기
   if (g?.refs) {
     const r = g.refs, t = [r.vibes.length && 'vibe', r.chars.length && 'char character', r.input === 'img2img' && 'i2i img2img', r.input === '인페인트' && 'inpaint'].filter(Boolean);
     out.ref = t.length ? t.join(' ') : 'none';
