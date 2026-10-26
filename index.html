@@ -249,6 +249,10 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
 .rtable th { width: 130px; }
 .rstat { display: inline-block; margin-right: 6px; padding: 0 8px; border-radius: 999px; font-size: 11.5px; font-weight: 700; background: var(--panel2); color: var(--muted); }
 .rstat.on { background: var(--accent-soft); color: var(--accent); }
+.rstat.ok { background: var(--pos-soft); color: var(--pos); }
+.rstat.bad { background: var(--neg-soft); color: var(--neg); }
+.badge.sigok { background: var(--pos-soft); color: var(--pos); border-color: transparent; }
+.badge.sigbad { background: var(--neg-soft); color: var(--neg); border-color: transparent; }
 .rline { margin-top: 4px; font-variant-numeric: tabular-nums; }
 .rline .muted { color: var(--muted); }
 .toolbar { margin-left: auto; display: flex; gap: 6px; }
@@ -426,7 +430,7 @@ pre { margin: 0; padding: 8px 14px 12px; font-size: 12px; white-space: pre-wrap;
 <div id="stripWrap">
   <div id="tools">
     <div class="qbox">
-      <input id="q" type="text" placeholder="태그 · 설정 검색 (예: silver hair, seed:1234)" title="쉼표로 여러 조건을 모두 만족하는 이미지를 찾습니다. 앞에 - 를 붙이면 제외합니다. 설정은 seed: steps: scale: sampler: model: size: effort: 로 찾고, steps:>=28 처럼 크기 비교도 됩니다. 레퍼런스는 ref:vibe, ref:char, ref:i2i, ref:none, ref:any" autocomplete="off" spellcheck="false" aria-label="태그 검색">
+      <input id="q" type="text" placeholder="태그 · 설정 검색 (예: silver hair, seed:1234)" title="쉼표로 여러 조건을 모두 만족하는 이미지를 찾습니다. 앞에 - 를 붙이면 제외합니다. 설정은 seed: steps: scale: sampler: model: size: effort: 로 찾고, steps:>=28 처럼 크기 비교도 됩니다. 레퍼런스는 ref:vibe, ref:char, ref:i2i, ref:none, ref:any. NAI 서명은 sig:ok, sig:bad, sig:none" autocomplete="off" spellcheck="false" aria-label="태그 검색">
       <button id="qClear" title="검색어 지우기" hidden>✕</button>
     </div>
     <select class="sel" id="qScope" title="검색 범위">
@@ -722,6 +726,95 @@ async function readStealth(file) {
   return { width: w, height: h, stealth: null };
 }
 
+/* ---------- NAI 서명 검증 ----------
+   NovelAI 공식 nai_sig.py 와 같은 방식: Ed25519 서명을 공개키로 확인
+   서명 대상 = 픽셀 바이트(RGB, 또는 알파 LSB를 0으로 지운 RGBA) + signed_hash 를 뺀 Comment JSON 문자열 */
+const NAI_PUBKEYS = ['Y2JcQAOhLwzwSDUJPNgL04nS0Tbqm7cSRc4xk0vRMic='];
+const b64bytes = t => Uint8Array.from(atob(t), ch => ch.charCodeAt(0));
+const naiKeys = new Map();
+async function naiKey(k) {
+  if (!naiKeys.has(k)) naiKeys.set(k, crypto.subtle.importKey('raw', b64bytes(k), { name: 'Ed25519' }, false, ['verify']));
+  return naiKeys.get(k);
+}
+// 브라우저 그림 기능(canvas)은 알파를 섞으며 픽셀 값을 바꿀 수 있어서, PNG를 직접 풀어 정확한 값을 얻음
+async function decodePNGPixels(u8) {
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  let p = 8, w = 0, h = 0, depth = 0, ctype = 0, inter = 0, total = 0;
+  const idat = [];
+  while (p + 12 <= u8.length) {
+    const len = dv.getUint32(p), type = ascii(u8, p + 4, 4);
+    if (type === 'IHDR') { w = dv.getUint32(p + 8); h = dv.getUint32(p + 12); depth = u8[p + 16]; ctype = u8[p + 17]; inter = u8[p + 20]; }
+    else if (type === 'IDAT') { idat.push(u8.subarray(p + 8, p + 8 + len)); total += len; }
+    else if (type === 'IEND') break;
+    p += 12 + len;
+  }
+  const bpp = ctype === 6 ? 4 : ctype === 2 ? 3 : 0;
+  if (depth !== 8 || !bpp || inter) return null;
+  const z = new Uint8Array(total);
+  let o = 0;
+  idat.forEach(a => { z.set(a, o); o += a.length; });
+  const data = await inflate(z, 'deflate'), stride = w * bpp, out = new Uint8Array(h * stride);
+  for (let y = 0; y < h; y++) {
+    const f = data[y * (stride + 1)], src = y * (stride + 1) + 1, row = y * stride, up = row - stride;
+    for (let x = 0; x < stride; x++) {
+      const a = x >= bpp ? out[row + x - bpp] : 0, b = y ? out[up + x] : 0;
+      let v = data[src + x];
+      if (f === 1) v += a;
+      else if (f === 2) v += b;
+      else if (f === 3) v += (a + b) >> 1;
+      else if (f === 4) {
+        const c = x >= bpp && y ? out[up + x - bpp] : 0, q = a + b - c, pa = Math.abs(q - a), pb = Math.abs(q - b), pc = Math.abs(q - c);
+        v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+      } else if (f !== 0) throw new Error('PNG 필터 오류');
+      out[row + x] = v;
+    }
+  }
+  return { w, h, bpp, px: out };
+}
+async function verifyComment(comment, cands) {
+  const m = comment.match(/"signed_hash":\s*"([^"]+)"/);
+  if (!m) return 'none';
+  // NAI가 저장한 문자열에서 signed_hash 항목만 잘라내면 서명할 때의 문자열과 같아짐 (Python json.dumps 형식 그대로)
+  let body = comment.replace(/,\s*"signed_hash":\s*"[^"]*"/, '');
+  if (body === comment) body = comment.replace(/"signed_hash":\s*"[^"]*",\s*/, '');
+  const sig = b64bytes(m[1]), cb = new TextEncoder().encode(body);
+  for (const k of NAI_PUBKEYS) {
+    const key = await naiKey(k);
+    for (const px of cands) {
+      const msg = new Uint8Array(px.length + cb.length);
+      msg.set(px); msg.set(cb, px.length);
+      if (await crypto.subtle.verify('Ed25519', key, sig, msg)) return 'ok';
+    }
+  }
+  return 'bad';
+}
+async function verifyNAI(u8, res) {
+  const fileC = res.texts.find(t => t.key === 'Comment')?.text;
+  const alphaC = typeof res.stealth?.json?.Comment === 'string' ? res.stealth.json.Comment : null;
+  const has = x => typeof x === 'string' && x.includes('"signed_hash"');
+  if (!has(fileC) && !has(alphaC)) return { status: 'none', file: 'none', alpha: 'none' };
+  if (res.format !== 'PNG') return { status: 'na', reason: 'PNG 원본에서만 확인할 수 있습니다' };
+  if (!globalThis.crypto?.subtle) return { status: 'na', reason: '이 브라우저에서는 서명 확인 기능을 쓸 수 없습니다' };
+  try {
+    const img = await decodePNGPixels(u8);
+    if (!img) return { status: 'na', reason: '지원하지 않는 PNG 형식입니다' };
+    const cands = [];
+    if (img.bpp === 3) cands.push(img.px);
+    else {
+      const rgb = new Uint8Array(img.w * img.h * 3), masked = img.px.slice();
+      for (let i = 0, j = 0; i < img.px.length; i += 4, j += 3) { rgb[j] = img.px[i]; rgb[j + 1] = img.px[i + 1]; rgb[j + 2] = img.px[i + 2]; masked[i + 3] &= 0xFE; }
+      cands.push(rgb, masked);
+    }
+    const out = { file: has(fileC) ? await verifyComment(fileC, cands) : 'none', alpha: has(alphaC) ? await verifyComment(alphaC, cands) : 'none' };
+    // 한쪽이라도 불일치면 불일치: 화면에 보이는 정보가 바뀐 쪽일 수 있음
+    out.status = out.file === 'bad' || out.alpha === 'bad' ? 'bad' : out.file === 'ok' || out.alpha === 'ok' ? 'ok' : 'none';
+    return out;
+  } catch (e) {
+    return { status: 'na', reason: /Ed25519|NotSupported|Unrecognized/i.test(`${e.name} ${e.message}`) ? '이 브라우저는 Ed25519 서명 확인을 지원하지 않습니다. 최신 크롬 · 엣지 · 파이어폭스 · 사파리에서 열어 주세요' : `확인 중 오류: ${e.message}` };
+  }
+}
+const SIG_TEXT = { ok: '일치', bad: '불일치', none: '서명 없음', na: '확인 불가' };
+
 /* ---------- 분석 ---------- */
 async function analyze(file) {
   const u8 = new Uint8Array(await file.arrayBuffer());
@@ -743,6 +836,7 @@ async function analyze(file) {
     if (uc) res.userComment = fmtExif(uc);
   }
   res.gen = interpret(res);
+  if (res.gen?.kind === 'nai') res.sig = await verifyNAI(u8, res);
   return res;
 }
 
@@ -1076,6 +1170,17 @@ function settingsCard(g) {
       `<button class="kv ${state.q.sInc.some(f => f.key === SLABEL[k]) ? 'hit' : ''}" data-copy="${clip(raw ?? v)}"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></button>`).join('')}</div></section>`;
 }
 
+function sigCard(sig) {
+  if (!sig) return '';
+  const stat = v => v === 'ok' ? '<span class="rstat ok">일치</span>NAI가 생성한 원본 그대로입니다'
+    : v === 'bad' ? '<span class="rstat bad">불일치</span>그림이나 생성 정보가 생성 이후에 바뀌었습니다'
+    : '<span class="rstat">서명 없음</span>';
+  const body = sig.status === 'na' ? `<p class="empty-note">${esc(sig.reason)}</p>`
+    : `<table class="rtable"><tr><th>PNG 텍스트 정보</th><td>${stat(sig.file)}</td></tr><tr><th>숨겨진 정보 (알파)</th><td>${stat(sig.alpha)}</td></tr></table>
+       <p class="empty-note">${sig.status === 'none' ? '서명이 들어 있지 않습니다. 서명 기능이 생기기 전 이미지이거나, 다른 도구가 메타데이터를 다시 쓴 경우입니다.'
+         : '서명은 그림의 픽셀과 생성 정보 전체를 함께 보증합니다. 크기 변경, 다시 저장, 일부 브라우저의 이미지 복사, SNS 업로드처럼 픽셀이 조금이라도 바뀌면 불일치로 나옵니다.'}</p>`;
+  return `<section class="card"><div class="card-head"><h3>NAI 서명 검증</h3><span class="count">${SIG_TEXT[sig.status]}</span></div>${body}</section>`;
+}
 function refsCard(g) {
   const r = g.refs;
   if (!r) return '';
@@ -1267,7 +1372,7 @@ state.q = { inc: [], exc: [], sInc: [], sExc: [], scope: 'all' };
 let qRe = null;
 // 설정 검색: seed:1234, steps:>=28, sampler:euler, model:v4.5, size:832x1216
 const SKEYS = { seed: 'seed', steps: 'steps', step: 'steps', scale: 'scale', cfg: 'scale', guidance: 'scale', rescale: 'rescale',
-  sampler: 'sampler', schedule: 'schedule', scheduler: 'schedule', model: 'model', size: 'size', res: 'size', effort: 'effort', ref: 'ref', variant: 'model', bg: 'bg' };
+  sampler: 'sampler', schedule: 'schedule', scheduler: 'schedule', model: 'model', size: 'size', res: 'size', effort: 'effort', ref: 'ref', variant: 'model', bg: 'bg', sig: 'sig' };
 const SLABEL = { '시드': 'seed', 'Seed': 'seed', 'seed': 'seed', 'noise_seed': 'seed', '스텝': 'steps', 'Steps': 'steps', 'steps': 'steps',
   '프롬프트 가이던스': 'scale', 'CFG scale': 'scale', 'cfg': 'scale', '가이던스 리스케일': 'rescale', '샘플러': 'sampler', 'Sampler': 'sampler',
   'sampler_name': 'sampler', '노이즈 스케줄': 'schedule', 'Schedule type': 'schedule', 'scheduler': 'schedule', '모델': 'model', 'Model': 'model',
@@ -1292,6 +1397,7 @@ function itemSettings(it) {
     const r = g.refs, t = [r.vibes.length && 'vibe', r.chars.length && 'char character', r.input === 'img2img' && 'i2i img2img', r.input === '인페인트' && 'inpaint'].filter(Boolean);
     out.ref = t.length ? t.join(' ') : 'none';
   }
+  if (it.result.sig) out.sig = it.result.sig.status; // sig:ok · sig:bad · sig:none
   return (it.sets = out);
 }
 function matchSetting(sets, f) {
@@ -1494,6 +1600,8 @@ function render() {
   if (g) {
     badges.push(`<span class="badge gen">${GEN_LABEL[g.kind]}${g.model ? ' · ' + esc(g.model) : ''}</span>`);
     if (g.furry) badges.push('<span class="badge refb">퍼리 모드</span>');
+    if (r.sig) badges.push(r.sig.status === 'ok' ? '<span class="badge sigok">✔ NAI 서명 확인</span>' : r.sig.status === 'bad' ? '<span class="badge sigbad">✖ 서명 불일치</span>'
+      : `<span class="badge none">${r.sig.status === 'none' ? '서명 없음' : '서명 확인 불가'}</span>`);
     if (g.refs) refList(g.refs).forEach(t => badges.push(`<span class="badge refb">${esc(t)}</span>`));
     badges.push(`<span class="badge">출처: ${esc(g.origin)}</span>`);
     content += promptCard('긍정 프롬프트', g.positive, 'pos');
@@ -1501,6 +1609,7 @@ function render() {
     content += charsSection(g);
     content += settingsCard(g);
     content += refsCard(g);
+    if (g.kind === 'nai') content += sigCard(r.sig);
     content += extraCard(g);
   } else {
     badges.push('<span class="badge none">생성 정보 없음</span>');
@@ -1841,12 +1950,12 @@ function exportCSV(items) {
   const maxChars = Math.max(0, ...items.map(it => it.result.gen?.chars?.length || 0));
   const head = ['번호', '파일명', '압축 파일', '즐겨찾기', '생성 도구', '모델', '긍정 프롬프트', '부정 프롬프트'];
   for (let i = 1; i <= maxChars; i++) head.push(`캐릭터 ${i} 긍정`, `캐릭터 ${i} 부정`);
-  head.push('시드', '스텝', '가이던스', '샘플러', '해상도', 'Effort', '레퍼런스');
+  head.push('시드', '스텝', '가이던스', '샘플러', '해상도', 'Effort', '레퍼런스', 'NAI 서명');
   const rows = items.map(it => {
     const g = it.result.gen, st = settingsOf(g);
     const r = [state.items.indexOf(it) + 1, it.path || it.file.name, it.zip || '', isFav(it) ? '★' : '', g ? GEN_LABEL[g.kind] : '메타데이터 없음', g?.model || '', g?.positive || '', g?.negative || ''];
     for (let i = 0; i < maxChars; i++) r.push(g?.chars?.[i]?.positive || '', g?.chars?.[i]?.negative || '');
-    r.push(st.seed ?? '', st.steps ?? '', st.scale ?? '', st.sampler ?? '', st.size ?? '', st.effort ?? '', refText(g));
+    r.push(st.seed ?? '', st.steps ?? '', st.scale ?? '', st.sampler ?? '', st.size ?? '', st.effort ?? '', refText(g), it.result.sig ? SIG_TEXT[it.result.sig.status] : '');
     return r;
   });
   return '\uFEFF' + [head, ...rows].map(r => r.map(csvCell).join(',')).join('\r\n');
@@ -1859,6 +1968,7 @@ function exportText(items) {
     const st = g.settings.filter(([k]) => k !== '모델' && k !== 'Model').map(([k, v]) => `${k} ${v}`).join(' · ');
     if (st) lines.push(`설정: ${st}`);
     if (g.refs) lines.push(`레퍼런스: ${refText(g)}`);
+    if (it.result.sig) lines.push(`NAI 서명: ${SIG_TEXT[it.result.sig.status]}`);
     lines.push('', '[긍정]', g.positive || '', '', '[부정]', g.negative || '');
     (g.chars || []).forEach((c, i) => lines.push('', `[캐릭터 ${i + 1} 긍정]`, c.positive || '', `[캐릭터 ${i + 1} 부정]`, c.negative || ''));
     return lines.join('\n');
