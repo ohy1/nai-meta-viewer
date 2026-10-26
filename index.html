@@ -244,6 +244,12 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
 .badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--panel2); border: 1px solid var(--border); }
 .badge.gen { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
 .badge.none { color: var(--muted); }
+.badge.refb { background: var(--hit-soft); border-color: transparent; }
+.rtable th { width: 130px; }
+.rstat { display: inline-block; margin-right: 6px; padding: 0 8px; border-radius: 999px; font-size: 11.5px; font-weight: 700; background: var(--panel2); color: var(--muted); }
+.rstat.on { background: var(--accent-soft); color: var(--accent); }
+.rline { margin-top: 4px; font-variant-numeric: tabular-nums; }
+.rline .muted { color: var(--muted); }
 .toolbar { margin-left: auto; display: flex; gap: 6px; }
 
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
@@ -418,7 +424,7 @@ pre { margin: 0; padding: 8px 14px 12px; font-size: 12px; white-space: pre-wrap;
 <div id="stripWrap">
   <div id="tools">
     <div class="qbox">
-      <input id="q" type="text" placeholder="태그 · 설정 검색 (예: silver hair, seed:1234)" title="쉼표로 여러 조건을 모두 만족하는 이미지를 찾습니다. 앞에 - 를 붙이면 제외합니다. 설정은 seed: steps: scale: sampler: model: size: 로 찾고, steps:>=28 처럼 크기 비교도 됩니다" autocomplete="off" spellcheck="false" aria-label="태그 검색">
+      <input id="q" type="text" placeholder="태그 · 설정 검색 (예: silver hair, seed:1234)" title="쉼표로 여러 조건을 모두 만족하는 이미지를 찾습니다. 앞에 - 를 붙이면 제외합니다. 설정은 seed: steps: scale: sampler: model: size: effort: 로 찾고, steps:>=28 처럼 크기 비교도 됩니다. 레퍼런스는 ref:vibe, ref:char, ref:i2i, ref:none, ref:any" autocomplete="off" spellcheck="false" aria-label="태그 검색">
       <button id="qClear" title="검색어 지우기" hidden>✕</button>
     </div>
     <select class="sel" id="qScope" title="검색 범위">
@@ -764,6 +770,36 @@ const SAMPLERS = {
   k_dpm_fast: 'DPM Fast', k_dpm_adaptive: 'DPM Adaptive', k_lms: 'LMS', ddim: 'DDIM', ddim_v3: 'DDIM', plms: 'PLMS',
 };
 
+/* NAI 레퍼런스: 바이브 트랜스퍼, 캐릭터 레퍼런스(V4.5), img2img · 인페인트
+   - 바이브 정보 추출 값은 V4 이후 메타데이터에 남지 않음 (빈 배열)
+   - 캐릭터 레퍼런스 Fidelity = 1 - director_reference_secondary_strengths */
+function naiRefs(c) {
+  const arr = v => Array.isArray(v) ? v : [];
+  const vs = arr(c.reference_strength_multiple), vi = arr(c.reference_information_extracted_multiple), vd = arr(c.reference_image_multiple);
+  const vibes = Array.from({ length: Math.max(vs.length, vd.length) }, (_, i) => ({
+    strength: vs[i], info: vi[i], bytes: typeof vd[i] === 'string' ? Math.round(vd[i].length * 3 / 4) : 0,
+  }));
+  const ds = arr(c.director_reference_strengths), dd = arr(c.director_reference_descriptions);
+  const d2 = arr(c.director_reference_secondary_strengths), di = arr(c.director_reference_information_extracted);
+  const chars = Array.from({ length: Math.max(ds.length, dd.length, arr(c.director_references).length) }, (_, i) => ({
+    type: dd[i]?.caption?.base_caption ?? '', strength: ds[i], info: di[i],
+    fidelity: typeof d2[i] === 'number' ? Math.round((1 - d2[i]) * 1000) / 1000 : undefined,
+  }));
+  const rt = c.request_type || '';
+  const input = /img2img/i.test(rt) ? 'img2img' : /infill|inpaint/i.test(rt) ? '인페인트' : c.image ? 'img2img' : '';
+  return { vibes, chars, input, strength: c.strength, noise: c.noise };
+}
+const REF_TYPE = { 'character&style': '캐릭터 + 스타일', character: '캐릭터', style: '스타일' };
+const refList = r => [
+  r.vibes.length && `바이브 ${r.vibes.length}`,
+  r.chars.length && (r.chars.length > 1 ? `캐릭터 레퍼런스 ${r.chars.length}` : '캐릭터 레퍼런스'),
+  r.input,
+].filter(Boolean);
+const refText = g => g?.refs ? (refList(g.refs).join(' · ') || '사용 안 함') : '';
+const V5_EFFORT = { '0ADF9AB7': 'High', '70AB5786': 'Medium' };
+const QUALITY_TAGS = { 0: 'None', 1: 'Standard' };
+const UC_PRESETS = { 2: 'Heavy', 4: 'Human Focus', 5: 'Furry Focus' };
+
 function parseNAI(f) {
   const c = typeof f.Comment === 'string' ? tryJSON(f.Comment) : f.Comment;
   if (!c || typeof c !== 'object') {
@@ -784,10 +820,19 @@ function parseNAI(f) {
   }
 
   const used = new Set(['prompt', 'uc', 'v4_prompt', 'v4_negative_prompt', 'characterPrompts', 'width', 'height', 'steps', 'scale',
-    'cfg_rescale', 'seed', 'sampler', 'noise_schedule', 'skip_cfg_above_sigma', 'request_type', 'n_samples']);
+    'cfg_rescale', 'seed', 'sampler', 'noise_schedule', 'skip_cfg_above_sigma', 'request_type', 'n_samples',
+    'model_name', 'model_hash', 'tag_hint_qt', 'tag_hint_uc_preset', 'reference_strength_multiple', 'reference_information_extracted_multiple',
+    'reference_image_multiple', 'director_references', 'director_reference_strengths', 'director_reference_descriptions',
+    'director_reference_secondary_strengths', 'director_reference_information_extracted', 'director_reference_images']);
+  // 모델: Source가 없으면 Comment의 model_name (V5부터). V5는 Effort마다 모델 해시가 다름
+  const source = f.Source || [c.model_name, c.model_hash].filter(Boolean).join(' ');
+  const hash = (c.model_hash || (source.match(/\b([0-9A-F]{8})$/i) || [])[1] || '').toUpperCase();
+  const modelName = c.model_name || source.replace(/\s+[0-9A-F]{8}$/i, '');
+  const effort = /\bV5\b/i.test(modelName) && hash ? V5_EFFORT[hash] || `알 수 없음 (해시 ${hash})` : '';
   const S = [];
   const add = (k, v, raw) => { if (v !== undefined && v !== null && v !== '') S.push([k, String(v), raw]); };
-  add('모델', f.Source);
+  add('모델', source);
+  add('Effort', effort);
   if (c.width && c.height) add('해상도', `${c.width} × ${c.height}`);
   add('스텝', c.steps);
   add('프롬프트 가이던스', c.scale);
@@ -800,21 +845,17 @@ function parseNAI(f) {
   if (/img2img|inpaint/i.test(c.request_type || '') || c.image) {
     add('img2img 강도', c.strength); add('img2img 노이즈', c.noise); used.add('strength'); used.add('noise');
   }
+  if (c.tag_hint_qt != null) add('품질 태그', QUALITY_TAGS[c.tag_hint_qt] ?? `${c.tag_hint_qt}번`);
+  if (c.tag_hint_uc_preset != null) add('UC 프리셋', UC_PRESETS[c.tag_hint_uc_preset] ?? `${c.tag_hint_uc_preset}번`);
   add('요청 유형', c.request_type);
   if (f['Generation time']) add('생성 소요 시간', `${(+f['Generation time']).toFixed(2)}초`, f['Generation time']);
   if (f.Software && f.Software !== 'NovelAI') add('소프트웨어', f.Software);
 
-  const vibes = [];
-  if (Array.isArray(c.reference_strength_multiple) && c.reference_strength_multiple.length) {
-    c.reference_strength_multiple.forEach((s, i) => vibes.push({ strength: s, info: c.reference_information_extracted_multiple?.[i] }));
-    used.add('reference_strength_multiple'); used.add('reference_information_extracted_multiple');
-  }
-
   const extra = Object.entries(c).filter(([k]) => !used.has(k));
   return {
-    positive, negative, chars, settings: S, extra, vibes,
+    positive, negative, chars, settings: S, extra, refs: naiRefs(c),
     useCoords: c.v4_prompt?.use_coords ?? c.use_coords, useOrder: c.v4_prompt?.use_order,
-    model: (f.Source || '').replace(/\s+[0-9A-F]{8}$/i, ''), comment: c,
+    model: modelName + (V5_EFFORT[hash] && effort ? ` · Effort ${effort}` : ''), comment: c,
   };
 }
 
@@ -1014,10 +1055,17 @@ function settingsCard(g) {
       `<button class="kv ${state.q.sInc.some(f => f.key === SLABEL[k]) ? 'hit' : ''}" data-copy="${clip(raw ?? v)}"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></button>`).join('')}</div></section>`;
 }
 
-function vibesCard(g) {
-  if (!g.vibes?.length) return '';
-  return `<section class="card"><div class="card-head"><h3>바이브 트랜스퍼</h3><span class="count">${g.vibes.length}개</span></div>
-    <table>${g.vibes.map((v, i) => `<tr><th>#${i + 1}</th><td>강도 ${esc(v.strength)}${v.info != null ? ` · 정보 추출 ${esc(v.info)}` : ''}</td></tr>`).join('')}</table></section>`;
+function refsCard(g) {
+  const r = g.refs;
+  if (!r) return '';
+  const num = v => v == null || v === '' ? '–' : String(+(+v).toFixed(3));
+  const row = (name, on, detail, off) => `<tr><th>${name}</th><td>${on ? `<span class="rstat on">사용함</span>${detail}` : `<span class="rstat">사용 안 함</span>${off || ''}`}</td></tr>`;
+  const vib = r.vibes.map((v, i) => `<div class="rline">#${i + 1} · 강도 ${num(v.strength)} · 정보 추출 ${v.info != null ? num(v.info) : '<span class="muted">기록 안 됨</span>'}${v.bytes ? ` · 데이터 ${fmtBytes(v.bytes)}` : ''}</div>`).join('');
+  const chr = r.chars.map((c, i) => `<div class="rline">#${i + 1} · ${esc(REF_TYPE[c.type] || c.type || '종류 모름')} · 강도 ${num(c.strength)} · Fidelity ${num(c.fidelity)}</div>`).join('');
+  const inp = r.input ? `<div class="rline">${esc(r.input)} · 강도 ${num(r.strength)} · 노이즈 ${num(r.noise)}</div>` : '';
+  return `<section class="card"><div class="card-head"><h3>레퍼런스 · 이미지 입력</h3><span class="count">${esc(refText(g))}</span></div>
+    <table class="rtable">${row('바이브 트랜스퍼', r.vibes.length, vib)}${row('캐릭터 레퍼런스', r.chars.length, chr)}${row('이미지 입력', r.input, inp, '<span class="rline muted">일반 생성</span>')}</table>
+    ${r.vibes.some(v => v.info == null) ? '<p class="empty-note">바이브의 정보 추출(Information Extracted) 값은 V4 이후 메타데이터에 남지 않아 확인할 수 없습니다.</p>' : ''}</section>`;
 }
 
 function extraValue(v) {
@@ -1070,11 +1118,11 @@ function rawSection(item) {
 const GEN_SHORT = { nai: 'NAI', a1111: 'SD', comfy: 'Comfy' };
 const noMeta = it => it.result && !it.result.gen;
 const genTag = it => !it.result ? '<span class="tb">···</span>'
-  : it.result.gen ? `<span class="tb">${GEN_SHORT[it.result.gen.kind]}</span>` : '<span class="tb none">없음</span>';
+  : it.result.gen ? `<span class="tb">${GEN_SHORT[it.result.gen.kind]}${it.result.gen.refs && refList(it.result.gen.refs).length ? '·R' : ''}</span>` : '<span class="tb none">없음</span>';
 const itemId = it => `${it.path || it.file.name}|${it.file.size}|${it.file.lastModified}`;
 const isFav = it => favs.has(itemId(it));
 const favTag = it => isFav(it) ? '<span class="fv">★</span>' : '';
-const thumbTitle = (it, i) => `${i + 1}. ${it.path || it.file.name}${noMeta(it) ? ' · 메타데이터 없음' : ''}`;
+const thumbTitle = (it, i) => `${i + 1}. ${it.path || it.file.name}${noMeta(it) ? ' · 메타데이터 없음' : ''}${it.result?.gen?.refs && refList(it.result.gen.refs).length ? ' · 레퍼런스: ' + refText(it.result.gen) : ''}`;
 function renderStrip() {
   $('#btnClear').hidden = state.items.length === 0;
   $('#sortSel').hidden = state.items.length < 2;
@@ -1178,11 +1226,11 @@ state.q = { inc: [], exc: [], sInc: [], sExc: [], scope: 'all' };
 let qRe = null;
 // 설정 검색: seed:1234, steps:>=28, sampler:euler, model:v4.5, size:832x1216
 const SKEYS = { seed: 'seed', steps: 'steps', step: 'steps', scale: 'scale', cfg: 'scale', guidance: 'scale', rescale: 'rescale',
-  sampler: 'sampler', schedule: 'schedule', scheduler: 'schedule', model: 'model', size: 'size', res: 'size' };
+  sampler: 'sampler', schedule: 'schedule', scheduler: 'schedule', model: 'model', size: 'size', res: 'size', effort: 'effort', ref: 'ref' };
 const SLABEL = { '시드': 'seed', 'Seed': 'seed', 'seed': 'seed', 'noise_seed': 'seed', '스텝': 'steps', 'Steps': 'steps', 'steps': 'steps',
   '프롬프트 가이던스': 'scale', 'CFG scale': 'scale', 'cfg': 'scale', '가이던스 리스케일': 'rescale', '샘플러': 'sampler', 'Sampler': 'sampler',
   'sampler_name': 'sampler', '노이즈 스케줄': 'schedule', 'Schedule type': 'schedule', 'scheduler': 'schedule', '모델': 'model', 'Model': 'model',
-  '해상도': 'size', 'Size': 'size' };
+  '해상도': 'size', 'Size': 'size', 'Effort': 'effort' };
 const NUM_KEYS = ['seed', 'steps', 'scale', 'rescale'];
 const normSize = v => v.replace(/\s*[×x]\s*/g, 'x');
 function parseSetting(term) {
@@ -1198,12 +1246,17 @@ function itemSettings(it) {
     const key = SLABEL[k];
     if (key && !(key in out)) out[key] = normTag(String(v)) + (raw != null && String(raw) !== String(v) ? ' ' + normTag(String(raw)) : '');
   }
+  if (g?.refs) {
+    const r = g.refs, t = [r.vibes.length && 'vibe', r.chars.length && 'char character', r.input === 'img2img' && 'i2i img2img', r.input === '인페인트' && 'inpaint'].filter(Boolean);
+    out.ref = t.length ? t.join(' ') : 'none';
+  }
   return (it.sets = out);
 }
 function matchSetting(sets, f) {
   const v = sets[f.key];
   if (v == null) return false;
   if (f.key === 'size') return normSize(v).includes(normSize(f.val));
+  if (f.key === 'ref') return f.val === 'any' ? v !== 'none' : v.split(' ').includes(f.val);
   const num = parseFloat(v), q = parseFloat(f.val);
   if (NUM_KEYS.includes(f.key) && !isNaN(num) && !isNaN(q))
     return f.op === '>' ? num > q : f.op === '<' ? num < q : f.op === '>=' ? num >= q : f.op === '<=' ? num <= q : num === q;
@@ -1340,6 +1393,7 @@ function renderCompose(focusSec) {
 }
 function settingsDiff(ga, gb) {
   const A = new Map(ga.settings.map(s => [s[0], s[1]])), B = new Map(gb.settings.map(s => [s[0], s[1]]));
+  if (ga.refs || gb.refs) { A.set('레퍼런스', refText(ga) || '–'); B.set('레퍼런스', refText(gb) || '–'); }
   const keys = [...new Set([...A.keys(), ...B.keys()])].filter(k => k !== '생성 소요 시간');
   if (!keys.length) return '';
   const diff = keys.filter(k => A.get(k) !== B.get(k));
@@ -1397,12 +1451,13 @@ function render() {
   const badges = [];
   if (g) {
     badges.push(`<span class="badge gen">${GEN_LABEL[g.kind]}${g.model ? ' · ' + esc(g.model) : ''}</span>`);
+    if (g.refs) refList(g.refs).forEach(t => badges.push(`<span class="badge refb">${esc(t)}</span>`));
     badges.push(`<span class="badge">출처: ${esc(g.origin)}</span>`);
     content += promptCard('긍정 프롬프트', g.positive, 'pos');
     content += promptCard('부정 프롬프트', g.negative, 'neg');
     content += charsSection(g);
     content += settingsCard(g);
-    content += vibesCard(g);
+    content += refsCard(g);
     content += extraCard(g);
   } else {
     badges.push('<span class="badge none">생성 정보 없음</span>');
@@ -1731,12 +1786,12 @@ function exportCSV(items) {
   const maxChars = Math.max(0, ...items.map(it => it.result.gen?.chars?.length || 0));
   const head = ['번호', '파일명', '압축 파일', '즐겨찾기', '생성 도구', '모델', '긍정 프롬프트', '부정 프롬프트'];
   for (let i = 1; i <= maxChars; i++) head.push(`캐릭터 ${i} 긍정`, `캐릭터 ${i} 부정`);
-  head.push('시드', '스텝', '가이던스', '샘플러', '해상도');
+  head.push('시드', '스텝', '가이던스', '샘플러', '해상도', 'Effort', '레퍼런스');
   const rows = items.map(it => {
     const g = it.result.gen, st = settingsOf(g);
     const r = [state.items.indexOf(it) + 1, it.path || it.file.name, it.zip || '', isFav(it) ? '★' : '', g ? GEN_LABEL[g.kind] : '메타데이터 없음', g?.model || '', g?.positive || '', g?.negative || ''];
     for (let i = 0; i < maxChars; i++) r.push(g?.chars?.[i]?.positive || '', g?.chars?.[i]?.negative || '');
-    r.push(st.seed ?? '', st.steps ?? '', st.scale ?? '', st.sampler ?? '', st.size ?? '');
+    r.push(st.seed ?? '', st.steps ?? '', st.scale ?? '', st.sampler ?? '', st.size ?? '', st.effort ?? '', refText(g));
     return r;
   });
   return '\uFEFF' + [head, ...rows].map(r => r.map(csvCell).join(',')).join('\r\n');
@@ -1748,6 +1803,7 @@ function exportText(items) {
     lines.push(`도구: ${GEN_LABEL[g.kind]}${g.model ? ' · ' + g.model : ''}`);
     const st = g.settings.filter(([k]) => k !== '모델' && k !== 'Model').map(([k, v]) => `${k} ${v}`).join(' · ');
     if (st) lines.push(`설정: ${st}`);
+    if (g.refs) lines.push(`레퍼런스: ${refText(g)}`);
     lines.push('', '[긍정]', g.positive || '', '', '[부정]', g.negative || '');
     (g.chars || []).forEach((c, i) => lines.push('', `[캐릭터 ${i + 1} 긍정]`, c.positive || '', `[캐릭터 ${i + 1} 부정]`, c.negative || ''));
     return lines.join('\n');
@@ -1786,7 +1842,7 @@ function showTip(t) {
   if (!it || !t.isConnected) return;
   const g = it.result?.gen, cut = (x, n) => x.length > n ? x.slice(0, n) + '…' : x;
   tip.innerHTML = `<b>${esc(it.path || it.file.name)}</b>${isFav(it) ? ' ★' : ''}` + (!it.result ? '<p class="tk">분석 중…</p>' : !g ? '<p class="tnm">메타데이터 없음</p>' :
-    `<p class="tk">${esc(GEN_LABEL[g.kind])}${g.model ? ' · ' + esc(g.model) : ''}</p>
+    `<p class="tk">${esc(GEN_LABEL[g.kind])}${g.model ? ' · ' + esc(g.model) : ''}${g.refs && refList(g.refs).length ? ' · 레퍼런스: ' + esc(refText(g)) : ''}</p>
      <p><span class="tl p">긍정</span>${hl(cut(g.positive || '', 260))}</p>
      ${g.negative ? `<p><span class="tl n">부정</span>${hl(cut(g.negative, 120))}</p>` : ''}
      ${g.chars?.length ? `<p class="tk">캐릭터 ${g.chars.length}명 · ${esc(g.chars.map(c => cut(c.positive || '', 36)).join(' / '))}</p>` : ''}`);
