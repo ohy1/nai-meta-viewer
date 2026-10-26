@@ -163,12 +163,20 @@ details.menu[open] > summary { border-color: var(--accent); }
 .cpos-side { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 12px; }
 .cpos-side .seg { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 /* V5 자유 배치 */
-.cpad { position: relative; flex: 0 0 auto; width: 104px; max-height: 160px; border: 1px solid var(--border); border-radius: 6px; cursor: crosshair;
+.cpos.free { flex-direction: column; }
+.cpad { position: relative; flex: 0 0 auto; align-self: center; border: 1px solid var(--border); border-radius: 6px; cursor: crosshair; touch-action: none; user-select: none; -webkit-user-select: none;
   background-color: var(--panel2); background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px); background-size: 20% 20%; }
 .cpad.off { opacity: .45; }
-.cpad i { position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-  font: 700 9px/1 system-ui, sans-serif; font-style: normal; color: var(--panel); background: var(--muted); pointer-events: none; }
-.cpad i.me { background: var(--accent); box-shadow: 0 0 0 2px var(--panel); }
+.cpad i { position: absolute; z-index: 1; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font: 700 9px/1 system-ui, sans-serif; font-style: normal; color: #fff; background: var(--muted); cursor: grab; box-shadow: 0 0 0 1.5px var(--panel); }
+.cpad i.empty { opacity: .45; }
+.cpad i.me { z-index: 2; background: var(--accent); box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent-soft); }
+.cpad .lbl { position: absolute; margin: -7px 0 0 11px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none;
+  font-size: 10px; line-height: 14px; padding: 0 3px; border-radius: 3px; background: color-mix(in srgb, var(--panel) 80%, transparent); color: var(--text); }
+.cpad .lbl.me { font-weight: 700; color: var(--accent); }
+.cpad.dragging, .cpad.dragging i { cursor: grabbing; }
+.cgrid5 button { font: 700 9px/1 system-ui, sans-serif; color: var(--muted); }
+.cgrid5 button.on { color: #fff; }
 /* 합성 설정 */
 .csettings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 12px 14px; }
 .cset { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; color: var(--muted); min-width: 0; }
@@ -395,6 +403,15 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
   font-style: normal; font-size: 9px; line-height: 1; color: #fff; display: flex; align-items: center; justify-content: center;
 }
 .pos-grid.lg i { width: 16px; height: 16px; margin: -8px 0 0 -8px; font-weight: 700; }
+/* V5 자유 배치: 정확한 좌표 지도 */
+.pos-map { position: relative; flex: 0 0 auto; border: 1px solid var(--border); border-radius: 6px; background-color: var(--panel2);
+  background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px); background-size: 10% 10%; }
+.pos-map button { position: absolute; z-index: 1; width: 18px; height: 18px; margin: -9px 0 0 -9px; padding: 0; border: 1.5px solid var(--panel); border-radius: 50%;
+  background: var(--cc); color: #fff; font: 700 9px/1 system-ui, sans-serif; cursor: pointer; }
+.pos-map button:hover { z-index: 3; box-shadow: 0 0 0 3px var(--accent-soft); }
+.pos-map .lbl { position: absolute; margin: -7px 0 0 11px; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none;
+  font-size: 10px; line-height: 14px; padding: 0 3px; border-radius: 3px; background: color-mix(in srgb, var(--panel) 80%, transparent); color: var(--text); }
+.card.char.flash { outline: 2px solid var(--accent); outline-offset: 2px; transition: outline-color .6s; }
 .poslabel { font-size: 12px; color: var(--muted); }
 
 .kvgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1px; background: var(--border); }
@@ -1183,25 +1200,38 @@ const posLabel = c => String.fromCharCode(65 + Math.max(0, Math.min(4, Math.roun
 const posGrid = (dots, lg) => `<div class="pos-grid ${lg ? 'lg' : ''}">${dots.map(d =>
   `<i style="left:${d.x * 100}%;top:${d.y * 100}%;background:${d.color}">${lg ? d.n : ''}</i>`).join('')}</div>`;
 
+// V4 · V4.5 격자 좌표는 0.1 · 0.3 · 0.5 · 0.7 · 0.9 뿐. V5이거나 그 밖의 값이면 자유 배치로 보고 정확한 좌표를 보여 줌
+const onGrid = v => [0.1, 0.3, 0.5, 0.7, 0.9].some(k => Math.abs(+v - k) < 1e-6);
+const freePos = g => /\bV5\b/.test(g.model || '') || g.chars.some(ch => (ch.centers || []).some(c => !onGrid(c.x) || !onGrid(c.y)));
+const fmtXY = c => `x ${(+c.x).toFixed(2)} · y ${(+c.y).toFixed(2)}`;
+const firstTag = (text, n = 14) => { const t = flatTags(text || '', 'nai')[0]?.text || ''; return t.length > n ? t.slice(0, n) + '…' : t; };
+function posMap(dots, gw, gh, max = 220) {
+  const k = Math.min(max / (gw || 1), max / (gh || 1)), w = Math.round((gw || 1) * k), h = Math.round((gh || 1) * k);
+  return `<div class="pos-map" style="width:${w}px;height:${h}px">${dots.map(d => {
+    const at = `left:${d.x * 100}%;top:${d.y * 100}%`;
+    return `<button data-gochar="${d.n}" style="${at};--cc:${d.color}" title="캐릭터 ${d.n} · ${fmtXY(d)}${d.label ? ' · ' + esc(d.label) : ''}">${d.n}</button>${d.label ? `<span class="lbl" style="${at}">${esc(d.label)}</span>` : ''}`;
+  }).join('')}</div>`;
+}
+
 function charsSection(g) {
   if (!g.chars?.length) return '';
-  const coords = g.useCoords !== false;
+  const coords = g.useCoords !== false, free = freePos(g);
   const all = [];
-  g.chars.forEach((ch, i) => (ch.centers || []).forEach(c => all.push({ ...c, color: CHAR_COLORS[i % CHAR_COLORS.length], n: i + 1 })));
+  g.chars.forEach((ch, i) => (ch.centers || []).forEach(c => all.push({ ...c, color: CHAR_COLORS[i % CHAR_COLORS.length], n: i + 1, label: firstTag(ch.positive) })));
   const meta = [`${g.chars.length}명`];
   meta.push(coords ? '위치 직접 지정' : '위치: AI 자동 선택');
   if (g.useOrder !== undefined) meta.push(g.useOrder ? '순서 사용' : '순서 미사용');
   return `<section class="stack">
     <div class="chars-head">
-      ${coords && all.length ? posGrid(all, true) : ''}
-      <div><h2>캐릭터 프롬프트</h2><div class="meta">${esc(meta.join(' · '))}</div></div>
+      ${coords && all.length ? free ? posMap(all, +g.comment?.width || 1, +g.comment?.height || 1) : posGrid(all, true) : ''}
+      <div><h2>캐릭터 프롬프트</h2><div class="meta">${esc(meta.join(' · '))}</div>${coords && all.length && free ? '<div class="poslabel">자유 배치 · 점을 누르면 그 캐릭터로 이동합니다</div>' : ''}</div>
     </div>
     ${g.chars.map((ch, i) => {
       const color = CHAR_COLORS[i % CHAR_COLORS.length];
       const both = `긍정:\n${ch.positive}\n\n부정:\n${ch.negative}`;
       const pos = coords && ch.centers?.length
-        ? `${posGrid(ch.centers.map(c => ({ ...c, color })), false)}<span class="poslabel">위치 ${ch.centers.map(posLabel).join(', ')}</span>` : '';
-      return `<section class="card char" style="--cc:${color}">
+        ? `${posGrid(ch.centers.map(c => ({ ...c, color })), false)}<span class="poslabel" title="${ch.centers.map(fmtXY).join(', ')}">위치 ${ch.centers.map(free ? fmtXY : posLabel).join(', ')}</span>` : '';
+      return `<section class="card char" id="char-${i + 1}" style="--cc:${color}">
         <div class="card-head"><span class="dot"></span><h3>캐릭터 ${i + 1}</h3>${ch.enabled === false ? '<span class="badge none">비활성</span>' : ''}${pos}
           <span class="count"></span><button class="btn sm" data-copy="${clip(both)}">전체 복사</button></div>
         <div class="sub"><div class="sublabel p">긍정 프롬프트 <button class="btn sm" data-copy="${clip(ch.positive)}">복사</button></div>${promptBody(ch.positive)}</div>
@@ -1705,23 +1735,29 @@ function composeHTML() {
   } else if (tab.startsWith('캐릭터')) {
     const n = charNo(tab), pos = composePos(n), coords = composeCoords();
     let place, where;
-    if (freePlace()) { // V5: 클릭한 곳에 바로 놓기
+    const label = i => firstTag(secOf(`캐릭터 ${i} · 긍정`).tags.map(t => t.text).join(', '), 12);
+    if (freePlace()) { // V5: 판 하나에 모든 캐릭터. 빈 곳을 누르면 지금 캐릭터를 놓고, 점은 끌어서 옮김
+      const k = Math.min(300 / (+st.width || 1), 240 / (+st.height || 1)), pw = Math.round((+st.width || 1) * k), ph = Math.round((+st.height || 1) * k);
       const dots = [];
-      for (let i = 1; i <= nChars; i++) { const q = composePos(i); dots.push(`<i class="${i === n ? 'me' : ''}" style="left:${q.x * 100}%;top:${q.y * 100}%">${i}</i>`); }
-      place = `<div class="cpad ${coords ? '' : 'off'}" data-cpad="${n}" style="aspect-ratio:${st.width} / ${st.height}" title="클릭한 곳에 캐릭터 ${n}을(를) 놓습니다">${dots.join('')}</div>`;
-      where = `x ${(+pos.x).toFixed(2)} · y ${(+pos.y).toFixed(2)}`;
-    } else { // V4 · V4.5: 5×5 격자
-      const sx = snapGrid(pos.x), sy = snapGrid(pos.y), cells = [];
+      for (let i = 1; i <= nChars; i++) {
+        const q = composePos(i), at = `left:${q.x * 100}%;top:${q.y * 100}%`, l = label(i);
+        dots.push(`<i data-pn="${i}" class="${i === n ? 'me' : ''} ${l ? '' : 'empty'}" style="${at}" title="캐릭터 ${i} · ${fmtXY(q)}${l ? ' · ' + esc(l) : ''}">${i}</i>${l ? `<span class="lbl ${i === n ? 'me' : ''}" data-pl="${i}" style="${at}">${esc(l)}</span>` : ''}`);
+      }
+      place = `<div class="cpad ${coords ? '' : 'off'}" data-cpad="${n}" style="width:${pw}px;height:${ph}px" title="빈 곳을 누르면 캐릭터 ${n}을(를) 놓습니다 · 점은 끌어서 옮깁니다">${dots.join('')}</div>`;
+      where = fmtXY(pos);
+    } else { // V4 · V4.5: 5×5 격자. 다른 캐릭터가 있는 칸에는 번호 표시
+      const sx = snapGrid(pos.x), sy = snapGrid(pos.y), cells = [], at = {};
+      for (let i = 1; i <= nChars; i++) if (i !== n && label(i)) { const q = composePos(i); (at[`${snapGrid(q.x)}|${snapGrid(q.y)}`] ||= []).push(i); }
       for (let y = 0; y < 5; y++) for (let x = 0; x < 5; x++) {
-        const cx = Math.round((x * 0.2 + 0.1) * 10) / 10, cy = Math.round((y * 0.2 + 0.1) * 10) / 10;
-        cells.push(`<button class="${sx === cx && sy === cy ? 'on' : ''}" data-cpos="${n}|${cx}|${cy}" title="${String.fromCharCode(65 + x)}${y + 1}" aria-label="위치 ${String.fromCharCode(65 + x)}${y + 1}"></button>`);
+        const cx = Math.round((x * 0.2 + 0.1) * 10) / 10, cy = Math.round((y * 0.2 + 0.1) * 10) / 10, name = String.fromCharCode(65 + x) + (y + 1), others = at[`${cx}|${cy}`] || [];
+        cells.push(`<button class="${sx === cx && sy === cy ? 'on' : ''}" data-cpos="${n}|${cx}|${cy}" title="${name}${others.length ? ' · 캐릭터 ' + others.join(', ') : ''}" aria-label="위치 ${name}">${others.length ? others[0] + (others.length > 1 ? '+' : '') : ''}</button>`);
       }
       place = `<div class="cgrid5 ${coords ? '' : 'off'}">${cells.join('')}</div>`;
       where = posLabel({ x: sx, y: sy });
     }
-    body = `<div class="cpos">${place}
+    body = `<div class="cpos ${freePlace() ? 'free' : ''}">${place}
         <div class="cpos-side"><b>캐릭터 ${n} 위치 ${coords ? where : '(AI 자동)'}</b>
-          <span class="poslabel">${freePlace() ? 'V5: 칸 안 아무 곳에나 놓을 수 있습니다' : 'V4 · V4.5: 5×5 격자 중에서 고릅니다'}</span>
+          <span class="poslabel">${freePlace() ? 'V5: 빈 곳을 누르면 지금 캐릭터를 놓고, 점을 끌면 그 캐릭터를 옮깁니다' : 'V4 · V4.5: 5×5 격자 중에서 고릅니다 · 칸의 숫자는 다른 캐릭터'}</span>
           <span class="seg"><button class="btn sm" data-coords="1" aria-pressed="${coords}">직접 지정</button><button class="btn sm" data-coords="0" aria-pressed="${!coords}">AI 자동</button></span>
           <span class="poslabel">AI 자동은 모든 캐릭터에 함께 적용됩니다</span>
           <button class="btn sm" data-delchar="${n}">이 캐릭터 비우기</button></div></div>
@@ -1808,6 +1844,73 @@ function wrapText(g, text, maxW, maxLines) {
   if (full && lines.length) { let l = lines[lines.length - 1]; while (l && g.measureText(l + ' …').width > maxW) l = l.slice(0, -1); lines[lines.length - 1] = l + ' …'; }
   return lines;
 }
+// 테스트 이미지 가운데: 왼쪽에 기준 이미지, 오른쪽에 캐릭터 배치도 (자리가 모자라면 작게 · 아주 좁으면 생략)
+function drawMiddle(g, { top, bottom, left, right, fs, w, h, baseImg, chars, ver, coords }) {
+  const panels = [];
+  if (baseImg) panels.push({ kind: 'img', label: '기준 이미지', ar: baseImg.naturalWidth / baseImg.naturalHeight });
+  if (chars.length) panels.push({ kind: 'map', label: coords ? `캐릭터 배치 · ${ver === 'V5' ? '자유 배치' : '5×5 격자'}` : '캐릭터 배치 · AI 자동', ar: w / h });
+  if (!panels.length) return;
+  const labelH = fs * 1.4, gap = fs * 2, small = Math.max(10, Math.round(fs * 0.72));
+  let boxH = Math.min(bottom - top - labelH, (right - left) * 0.45);
+  const totalW = bh => panels.reduce((n, p) => n + bh * p.ar, 0) + gap * (panels.length - 1);
+  if (totalW(boxH) > right - left) boxH *= (right - left) / totalW(boxH);
+  if (boxH < fs * 2.5) return;
+  let x = left + (right - left - totalW(boxH)) / 2;
+  const y0 = top + (bottom - top - labelH - boxH) / 2 + labelH;
+  for (const p of panels) {
+    const bw = boxH * p.ar;
+    g.fillStyle = '#5f6b7a'; g.font = `600 ${small}px system-ui, sans-serif`; g.fillText(p.label, x, y0 - labelH);
+    g.save(); g.beginPath(); g.roundRect(x, y0, bw, boxH, 8); g.fillStyle = '#ffffff'; g.fill(); g.clip();
+    if (p.kind === 'img') g.drawImage(baseImg, x, y0, bw, boxH);
+    else {
+      g.strokeStyle = '#e3e7ee'; g.lineWidth = 1;
+      const div = ver === 'V5' ? 10 : 5;
+      for (let i = 1; i < div; i++) {
+        g.beginPath(); g.moveTo(x + bw * i / div, y0); g.lineTo(x + bw * i / div, y0 + boxH); g.stroke();
+        g.beginPath(); g.moveTo(x, y0 + boxH * i / div); g.lineTo(x + bw, y0 + boxH * i / div); g.stroke();
+      }
+      if (!coords) { g.fillStyle = '#5f6b7a'; g.font = `${small}px system-ui, sans-serif`; g.textAlign = 'center'; g.fillText(`위치는 AI가 정함 · 캐릭터 ${chars.length}명`, x + bw / 2, y0 + boxH / 2 - small / 2); g.textAlign = 'left'; }
+      else {
+        // 같은 자리(격자는 같은 칸)에 여럿이면 작은 점으로 모아 놓고, 이름표는 겹치지 않을 때만 붙임
+        const groups = new Map();
+        chars.forEach((ch, i) => (ch.centers?.length ? ch.centers : [{ x: 0.5, y: 0.5 }]).forEach(c => {
+          const key = ver === 'V5' ? `${(+c.x).toFixed(2)}|${(+c.y).toFixed(2)}` : `${snapGrid(+c.x)}|${snapGrid(+c.y)}`;
+          if (!groups.has(key)) groups.set(key, { c: ver === 'V5' ? c : { x: snapGrid(+c.x), y: snapGrid(+c.y) }, list: [] });
+          groups.get(key).list.push({ n: i + 1, label: firstTag(ch.char_caption, 12) });
+        }));
+        const R = Math.max(7, Math.min(fs * 0.62, boxH / 18)), rects = [], dots = [];
+        for (const { c, list } of groups.values()) {
+          const cols = Math.ceil(Math.sqrt(list.length)), rows = Math.ceil(list.length / cols);
+          const cellW = ver === 'V5' ? R * 2.4 * cols : bw / 5, cellH = ver === 'V5' ? R * 2.4 * rows : boxH / 5;
+          const r = Math.min(R, cellW / cols / 2.3, cellH / rows / 2.3), step = r * 2.25;
+          list.forEach((d, k) => {
+            const cx = x + bw * c.x + ((k % cols) - (cols - 1) / 2) * step, cy = y0 + boxH * c.y + (Math.floor(k / cols) - (rows - 1) / 2) * step;
+            dots.push({ ...d, cx, cy, r, alone: list.length === 1 }); rects.push([cx - r, cy - r, cx + r, cy + r]);
+          });
+        }
+        const hit = q => rects.some(o => q[0] < o[2] && q[2] > o[0] && q[1] < o[3] && q[3] > o[1]);
+        for (const d of dots) {
+          g.beginPath(); g.arc(d.cx, d.cy, d.r, 0, Math.PI * 2); g.fillStyle = CHAR_COLORS[(d.n - 1) % CHAR_COLORS.length]; g.fill();
+          g.lineWidth = Math.max(1, d.r / 5); g.strokeStyle = '#ffffff'; g.stroke();
+          g.fillStyle = '#ffffff'; g.font = `700 ${Math.round(d.r * (d.n > 9 ? 0.9 : 1.05))}px system-ui, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(d.n), d.cx, d.cy + 0.5);
+          g.textAlign = 'left';
+          if (d.alone && d.label) { // 오른쪽, 안 되면 왼쪽
+            const lf = Math.max(9, Math.min(small, boxH / 11));
+            g.font = `${lf}px system-ui, sans-serif`;
+            const lw = g.measureText(d.label).width;
+            const q = [[d.cx + d.r + 3, d.cy - lf / 2, d.cx + d.r + 3 + lw, d.cy + lf / 2], [d.cx - d.r - 3 - lw, d.cy - lf / 2, d.cx - d.r - 3, d.cy + lf / 2]]
+              .find(q => q[0] >= x + 2 && q[2] <= x + bw - 2 && !hit(q));
+            if (q) { g.fillStyle = '#1b1f24'; g.fillText(d.label, q[0], d.cy); rects.push(q); }
+          }
+          g.textBaseline = 'top';
+        }
+      }
+    }
+    g.restore();
+    g.strokeStyle = '#cfd5de'; g.lineWidth = 1; g.beginPath(); g.roundRect(x, y0, bw, boxH, 8); g.stroke();
+    x += bw + gap;
+  }
+}
 async function saveComposedPng() {
   const c = composedNaiComment(), m = composeModel(), w = Math.min(+c.width || 832, 2048), h = Math.min(+c.height || 1216, 2048);
   const cv = document.createElement('canvas');
@@ -1816,12 +1919,17 @@ async function saveComposedPng() {
   grd.addColorStop(0, '#e8ecfd'); grd.addColorStop(1, '#f5f6f8');
   g.fillStyle = grd; g.fillRect(0, 0, w, h);
   g.textBaseline = 'top'; g.textAlign = 'left';
+  // 기준 이미지 (가운데 빈자리에 작게 넣음). 읽지 못하는 형식이면 건너뜀
+  let baseImg = null;
+  const base = composeBase();
+  if (base?.url) try { const im = new Image(); im.src = base.url; await im.decode(); if (im.naturalWidth) baseImg = im; } catch {}
   // 위쪽: 프로젝트 이름과 안내
   let y = pad;
   g.fillStyle = '#4f6bed'; g.font = `800 ${Math.round(fs * 2.8)}px system-ui, sans-serif`; g.fillText('nai-meta-viewer', pad, y); y += fs * 3.6;
   g.fillStyle = '#5f6b7a'; g.font = `${fs}px system-ui, sans-serif`;
   [`태그 합성 테스트 이미지 · ${m.label}`, `${c.width}×${c.height} · 스텝 ${c.steps} · 가이던스 ${c.scale} · 리스케일 ${c.cfg_rescale} · 시드 ${c.seed}`, `${c.sampler} · ${c.noise_schedule}`, 'NovelAI가 생성한 이미지가 아닙니다 (서명 없음)']
     .forEach(t => wrapText(g, t, w - pad * 2, 2).forEach(l => { g.fillText(l, pad, y); y += fs * 1.5; }));
+  const headEnd = y;
   // 아래쪽: 긍정 · 부정 · 캐릭터 프롬프트
   const chars = c.v4_prompt.caption.char_captions, negChars = c.v4_negative_prompt.caption.char_captions;
   const lineH = fs * 1.4, maxW = w - pad * 2;
@@ -1830,8 +1938,9 @@ async function saveComposedPng() {
   g.font = `${fs}px ui-monospace, Consolas, monospace`;
   const laid = blocks.map(([label, text, color, max]) => ({ label, color, lines: wrapText(g, text || '(없음)', maxW, max) }));
   let height = laid.reduce((n, b) => n + lineH * (b.lines.length + 1) + fs * 0.6, 0);
-  while (laid.length > 2 && height > h * 0.6) { const b = laid.pop(); height -= lineH * (b.lines.length + 1) + fs * 0.6; } // 공간이 모자라면 뒤쪽 캐릭터부터 생략
+  while (laid.length > 2 && height > h * 0.5) { const b = laid.pop(); height -= lineH * (b.lines.length + 1) + fs * 0.6; } // 공간이 모자라면 뒤쪽 캐릭터부터 생략
   y = h - pad - height;
+  drawMiddle(g, { top: headEnd + fs * 0.4, bottom: y - fs * 1.6, left: pad, right: w - pad, fs, w, h, baseImg, chars, coords: c.v4_prompt.use_coords !== false, ver: m.ver });
   g.strokeStyle = '#dde1e6'; g.beginPath(); g.moveTo(pad, y - fs); g.lineTo(w - pad, y - fs); g.stroke();
   for (const b of laid) {
     g.fillStyle = b.color; g.font = `700 ${fs}px system-ui, sans-serif`; g.fillText(b.label, pad, y); y += lineH;
@@ -2537,6 +2646,38 @@ $('#main').addEventListener('change', e => {
   state.composeSet = st;
   renderCompose();
 });
+/* V5 배치판: 빈 곳을 누르면 지금 캐릭터를 놓고, 점은 끌어서 옮김 (마우스 · 터치 공통) */
+let padDrag = null;
+function padMove(e) {
+  const { pad, n } = padDrag, r = pad.getBoundingClientRect();
+  const q = { x: Math.round(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * 100) / 100, y: Math.round(Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) * 100) / 100 };
+  (state.composePos ||= {})[n] = q;
+  pad.querySelectorAll(`[data-pn="${n}"], [data-pl="${n}"]`).forEach(el => { el.style.left = q.x * 100 + '%'; el.style.top = q.y * 100 + '%'; });
+}
+$('#main').addEventListener('pointerdown', e => {
+  const pad = e.target.closest('.cpad');
+  if (!pad || e.button > 0) return;
+  e.preventDefault();
+  const dot = e.target.closest('[data-pn]');
+  padDrag = { pad, n: dot ? +dot.dataset.pn : +pad.dataset.cpad, id: e.pointerId, moved: !dot };
+  pad.setPointerCapture?.(e.pointerId);
+  pad.classList.add('dragging');
+  if (!dot) padMove(e);
+});
+$('#main').addEventListener('pointermove', e => {
+  if (!padDrag || e.pointerId !== padDrag.id) return;
+  padDrag.moved = true; padMove(e);
+});
+const padEnd = e => {
+  if (!padDrag || e.pointerId !== padDrag.id) return;
+  const { n, moved } = padDrag;
+  padDrag = null;
+  if (moved) state.composeCoords = true;
+  state.composeTab = `캐릭터 ${n}`;
+  renderCompose();
+};
+$('#main').addEventListener('pointerup', padEnd);
+$('#main').addEventListener('pointercancel', padEnd);
 $('#btnCompose').onclick = () => {
   if (!state.items.length) return;
   state.composeMode = !(state.composeMode && !state.compare);
@@ -2609,12 +2750,12 @@ document.addEventListener('click', e => {
   if (cv) { state.compare ? viewer.show(state.compare[cv.dataset.cmpview]) : viewer.show(); return; }
   if (e.target.closest('#composeExit')) { state.composeMode = false; updateCompareBtn(); render(); return; }
   if (e.target.closest('#composeSetReset')) { state.composeSet = null; renderCompose(); return; }
-  const pad = e.target.closest('[data-cpad]');
-  if (pad) {
-    const r = pad.getBoundingClientRect(), n = +pad.dataset.cpad;
-    const x = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), y = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
-    (state.composePos ||= {})[n] = { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 };
-    state.composeCoords = true; renderCompose(); return;
+  if (e.target.closest('[data-cpad]')) return; // 배치판은 pointer 이벤트로 처리
+  const gc = e.target.closest('[data-gochar]');
+  if (gc) {
+    const card = document.getElementById(`char-${gc.dataset.gochar}`);
+    if (card) { card.scrollIntoView({ behavior: 'smooth', block: 'center' }); card.classList.add('flash'); setTimeout(() => card.classList.remove('flash'), 1200); }
+    return;
   }
   const at = e.target.closest('[data-att]');
   if (at) { attAction(atts[+at.dataset.att], at); return; }
