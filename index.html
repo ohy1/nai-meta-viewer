@@ -151,6 +151,11 @@ details.menu[open] > summary { border-color: var(--accent); }
   font: 700 11px ui-monospace, Consolas, monospace; color: var(--hw);
 }
 .wpick:hover { background: var(--hit-soft); }
+/* 태그 합성에 이미 담긴 태그: 한 번 더 누르면 복사 */
+.chip.picked { box-shadow: inset 0 0 0 2px var(--accent); }
+.chip.picked::before { content: "✓"; margin-right: 4px; color: var(--accent); font-weight: 700; }
+.wpick.picked { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.btn.picked::after { content: " ✓"; color: var(--accent); }
 .cimg img { cursor: zoom-in; }
 mark.q { background: var(--hit-soft); color: inherit; border-radius: 3px; box-shadow: 0 0 0 1px var(--hit); }
 .chip.hit { box-shadow: 0 0 0 2px var(--hit); }
@@ -1482,7 +1487,7 @@ function diffTags(ta, tb) {
 const fmtW = w => String(+w.toFixed(2));
 let adds = [];
 const addRef = (title, list) => { adds.push({ title, list }); return adds.length - 1; };
-const tagChip = (t, cls, title) => `<button class="chip ${cls}" data-add="${addRef(title, [t])}" title="클릭하면 태그 합성에 담깁니다">${esc(t.text)}${t.w !== 1 ? `<span class="cw">×${fmtW(t.w)}</span>` : ''}</button>`;
+const tagChip = (t, cls, title) => `<button class="chip ${cls}" data-add="${addRef(title, [t])}" title="클릭하면 태그 합성에 담기고, 담긴 태그를 한 번 더 누르면 복사됩니다">${esc(t.text)}${t.w !== 1 ? `<span class="cw">×${fmtW(t.w)}</span>` : ''}</button>`;
 function diffSection(title, ta, tb) {
   if (!ta.length && !tb.length) return '';
   const d = diffTags(ta, tb), n = d.onlyA.length + d.onlyB.length + d.changed.length;
@@ -1506,15 +1511,18 @@ const secRank = t => { const i = SEC_BASE.indexOf(t); if (i >= 0) return i; cons
 const findSec = title => compose.find(x => x.title === title);
 const composeSd = () => ['a1111', 'comfy'].includes(state.compare?.a.result?.gen?.kind);
 const fmtTag = (t, sd) => t.w === 1 ? t.text : sd ? `(${t.text}:${fmtW(t.w)})` : `${fmtW(t.w)}::${t.text}::`;
+const inCompose = (sec, list) => !!sec && list.every(t => sec.tags.some(x => x.key === t.key && x.w === t.w));
 function addToCompose({ title, list }, focusSec) {
   let sec = findSec(title);
+  // 이미 담긴 태그를 다시 누르면 복사 (합성 기능을 쓰지 않을 때도 클릭으로 바로 복사)
+  if (focusSec == null && inCompose(sec, list)) { copyText(list.map(t => t.text).join(', ')); return; }
   if (!sec) compose.push(sec = { title, tags: [] });
   let added = 0;
   list.forEach(t => {
     const e = sec.tags.find(x => x.key === t.key);
     if (e) e.w = t.w; else { sec.tags.push({ key: t.key, text: t.text, w: t.w }); added++; }
   });
-  toast(added ? `태그 ${added}개를 담았습니다` : '이미 담긴 태그입니다 (가중치만 맞췄습니다)');
+  toast(added ? `태그 ${added}개를 담았습니다 · 한 번 더 누르면 복사` : '가중치를 바꿔 담았습니다');
   renderCompose(focusSec);
 }
 function composeHTML() {
@@ -1533,10 +1541,18 @@ function composeHTML() {
       <input class="cin" data-sec="${esc(x.title)}" placeholder="태그 직접 입력 · 쉼표로 여러 개 · Enter" autocomplete="off" spellcheck="false" aria-label="${esc(x.title)}에 태그 직접 입력">
     </div>`).join('')}`;
 }
+// 비교 결과에서 이미 담긴 태그 · 버튼에 표시
+function markPicked() {
+  document.querySelectorAll('#main [data-add]').forEach(el => {
+    const ref = adds[+el.dataset.add];
+    el.classList.toggle('picked', !!ref && inCompose(findSec(ref.title), ref.list));
+  });
+}
 function renderCompose(focusSec) {
   const el = $('#compose');
   if (!el) return;
   el.innerHTML = composeHTML();
+  markPicked();
   if (focusSec != null) [...el.querySelectorAll('.cin')].find(x => x.dataset.sec === focusSec)?.focus();
 }
 function settingsDiff(ga, gb) {
@@ -1572,7 +1588,7 @@ function renderCompare() {
   state.compareTitles = titles;
   return `<div class="cmp">
     <div class="chead">${side(a, 'a')}<button class="btn" id="cmpSwap" title="A와 B 바꾸기">⇄</button>${side(b, 'b')}</div>
-    <div class="cbar"><span>A가 기준입니다. 썸네일을 클릭하거나 ← → 키로 B(비교 대상)를 바꿉니다. 태그를 클릭하면 태그 합성 칸에 담깁니다.</span><button class="btn sm" id="cmpExit">비교 끝내기</button></div>
+    <div class="cbar"><span>A가 기준입니다. 썸네일을 클릭하거나 ← → 키로 B(비교 대상)를 바꿉니다. 태그를 클릭하면 태그 합성 칸에 담기고(✓ 표시), 한 번 더 누르면 복사됩니다.</span><button class="btn sm" id="cmpExit">비교 끝내기</button></div>
     <div class="cgrid"><div class="stack">${body}</div><aside class="card compose" id="compose">${composeHTML()}</aside></div>
   </div>`;
 }
@@ -1590,7 +1606,7 @@ function render() {
     </div>`;
     return;
   }
-  if (state.compare) { main.innerHTML = renderCompare(); return; }
+  if (state.compare) { main.innerHTML = renderCompare(); markPicked(); return; }
   const item = state.items[state.current];
   if (!item.result) { main.innerHTML = '<div class="loading">분석 중…</div>'; return; }
   const r = item.result, g = r.gen;
