@@ -24,7 +24,7 @@ NovelAI 이미지는 **긍정 프롬프트 / 부정 프롬프트 / 캐릭터별 
   - **캐릭터 레퍼런스**(V4.5): 종류(캐릭터 / 스타일 / 캐릭터 + 스타일), 강도, Fidelity
   - **이미지 입력**: img2img · 인페인트 여부와 강도, 노이즈
   - 사용한 레퍼런스는 상단 배지로도 표시되고, 썸네일에는 `NAI·R` 처럼 R이 붙습니다.
-- 모델 해시로 **Full / Curated** 를 구분하고(V4 · V4.5 · V5), V5 Full은 **Effort**(High / Medium)도 표시합니다. **품질 태그**(None / Standard), **UC 프리셋**(Heavy / Light / Human Focus / Furry Focus / None)도 이름으로 보여 줍니다.
+- 모델 해시로 **Full / Curated** 를 구분하고(V4 · V4.5 · V5), V5 Full은 **Effort**(High / Medium)도 표시합니다. **품질 태그**(None / Standard), **UC 프리셋**(Heavy / Light / Human Focus / Furry Focus / None)도 이름으로 보여 줍니다. 프롬프트 맨 앞에 `fur dataset` 이 붙은 이미지는 **퍼리 모드**로 표시합니다(모델 해시는 같아서 프롬프트로 구분).
 - 그 밖의 파라미터는 "기타 파라미터"에 모두 담겨 있습니다.
 
 ### 가중치 문법을 읽기 쉽게

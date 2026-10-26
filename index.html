@@ -842,6 +842,9 @@ function parseNAI(f) {
   const add = (k, v, raw) => { if (v !== undefined && v !== null && v !== '') S.push([k, String(v), raw]); };
   add('모델', source);
   add('모델 종류', known.variant);
+  // 퍼리 모드: 모델 해시는 그대로이고, 긍정 프롬프트 맨 앞에 fur dataset 이 붙음
+  const furry = /^\s*fur dataset\s*(,|$)/i.test(positive);
+  if (furry) add('퍼리 모드', '켜짐');
   add('Effort', effort);
   if (c.width && c.height) add('해상도', `${c.width} × ${c.height}`);
   add('스텝', c.steps);
@@ -863,7 +866,7 @@ function parseNAI(f) {
 
   const extra = Object.entries(c).filter(([k]) => !used.has(k));
   return {
-    positive, negative, chars, settings: S, extra, refs: naiRefs(c),
+    positive, negative, chars, settings: S, extra, refs: naiRefs(c), furry,
     useCoords: c.v4_prompt?.use_coords ?? c.use_coords, useOrder: c.v4_prompt?.use_order,
     model: modelName + (known.variant ? ` ${known.variant}` : '') + (effort ? ` · Effort ${effort}` : ''), comment: c,
   };
@@ -1462,6 +1465,7 @@ function render() {
   const badges = [];
   if (g) {
     badges.push(`<span class="badge gen">${GEN_LABEL[g.kind]}${g.model ? ' · ' + esc(g.model) : ''}</span>`);
+    if (g.furry) badges.push('<span class="badge refb">퍼리 모드</span>');
     if (g.refs) refList(g.refs).forEach(t => badges.push(`<span class="badge refb">${esc(t)}</span>`));
     badges.push(`<span class="badge">출처: ${esc(g.origin)}</span>`);
     content += promptCard('긍정 프롬프트', g.positive, 'pos');
