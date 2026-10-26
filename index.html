@@ -256,6 +256,13 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
 .rstat.on { background: var(--accent-soft); color: var(--accent); }
 .rstat.ok { background: var(--pos-soft); color: var(--pos); }
 .rstat.bad { background: var(--neg-soft); color: var(--neg); }
+.badge.attb { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.att-table td { vertical-align: middle; }
+.att-name { word-break: break-all; }
+.att-size { white-space: nowrap; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.att-act { white-space: nowrap; text-align: right; }
+.att-act .btn + .btn { margin-left: 4px; }
+.btn.armed { border-color: var(--neg); color: var(--neg); }
 .badge.sigok { background: var(--pos-soft); color: var(--pos); border-color: transparent; }
 .badge.sigbad { background: var(--neg-soft); color: var(--neg); border-color: transparent; }
 .rline { margin-top: 4px; font-variant-numeric: tabular-nums; }
@@ -435,7 +442,7 @@ pre { margin: 0; padding: 8px 14px 12px; font-size: 12px; white-space: pre-wrap;
 <div id="stripWrap">
   <div id="tools">
     <div class="qbox">
-      <input id="q" type="text" placeholder="태그 · 설정 검색 (예: silver hair, seed:1234)" title="쉼표로 여러 조건을 모두 만족하는 이미지를 찾습니다. 앞에 - 를 붙이면 제외합니다. 설정은 seed: steps: scale: sampler: model: size: effort: 로 찾고, steps:>=28 처럼 크기 비교도 됩니다. 레퍼런스는 ref:vibe, ref:char, ref:i2i, ref:none, ref:any. NAI 서명은 sig:ok, sig:bad, sig:none" autocomplete="off" spellcheck="false" aria-label="태그 검색">
+      <input id="q" type="text" placeholder="태그 · 설정 검색 (예: silver hair, seed:1234)" title="쉼표로 여러 조건을 모두 만족하는 이미지를 찾습니다. 앞에 - 를 붙이면 제외합니다. 설정은 seed: steps: scale: sampler: model: size: effort: 로 찾고, steps:>=28 처럼 크기 비교도 됩니다. 레퍼런스는 ref:vibe, ref:char, ref:i2i, ref:none, ref:any. NAI 서명은 sig:ok, sig:bad, sig:none. 숨겨진 첨부는 attach:zip, attach:any" autocomplete="off" spellcheck="false" aria-label="태그 검색">
       <button id="qClear" title="검색어 지우기" hidden>✕</button>
     </div>
     <select class="sel" id="qScope" title="검색 범위">
@@ -840,6 +847,7 @@ async function analyze(file) {
     const uc = res.exif.find(e => e.name === 'UserComment');
     if (uc) res.userComment = fmtExif(uc);
   }
+  try { res.attach = detectAttachment(u8, res.format); } catch (e) { res.errors.push('첨부 데이터 확인 실패: ' + e.message); }
   res.gen = interpret(res);
   if (res.gen?.kind === 'nai') res.sig = await verifyNAI(u8, res);
   return res;
@@ -1175,6 +1183,57 @@ function settingsCard(g) {
       `<button class="kv ${state.q.sInc.some(f => f.key === SLABEL[k]) ? 'hit' : ''}" data-copy="${clip(raw ?? v)}"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></button>`).join('')}</div></section>`;
 }
 
+// 실행되거나, 브라우저에서 열면 스크립트가 돌 수 있는 파일
+const RISKY_EXT = /\.(exe|com|bat|cmd|scr|pif|msi|msp|dll|cpl|ps1|psm1|vbs|vbe|js|jse|mjs|wsf|wsh|hta|jar|lnk|reg|sh|app|apk|dmg|iso|html?|xhtml|svg)$/i;
+let atts = [];
+const attRef = x => { atts.push(x); return atts.length - 1; };
+function attachCard(item) {
+  const a = item.result.attach;
+  if (!a) return '';
+  const files = (a.entries || []).filter(e => !zipJunk(e)), imgs = files.filter(e => IMG_EXT.test(e.base) && !e.encrypted);
+  let body;
+  if (a.entries) {
+    const rows = files.slice(0, 300).map(e => {
+      const risky = RISKY_EXT.test(e.base);
+      return `<tr><td class="att-name">${e.encrypted ? '🔒 ' : ''}${esc(e.name)}${risky ? ' <span class="rstat bad">⚠ 실행될 수 있는 파일</span>' : ''}</td>
+        <td class="att-size">${fmtBytes(e.usize)}</td>
+        <td class="att-act">${IMG_EXT.test(e.base) && !e.encrypted ? `<button class="btn sm" data-att="${attRef({ act: 'open', item, e })}">뷰어로 열기</button>` : ''}${e.encrypted ? '<span class="poslabel">암호 걸림</span>' : `<button class="btn sm" data-att="${attRef({ act: 'save', item, e, risky })}">저장</button>`}</td></tr>`;
+    }).join('');
+    body = files.length ? `<table class="att-table">${rows}</table>${files.length > 300 ? `<p class="empty-note">외 ${files.length - 300}개</p>` : ''}` : '<p class="empty-note">들어 있는 파일이 없습니다.</p>';
+  } else {
+    body = `<p class="empty-note">${a.kind === 'unknown' ? '이미지 뒤에 정체를 알 수 없는 데이터가 붙어 있습니다.'
+      : a.kind === 'zip' ? `ZIP 목록을 읽지 못했습니다${a.error ? ` (${esc(a.error)})` : ''}. 통째로 저장한 뒤 압축 프로그램으로 열어 보세요.`
+      : `${ATT_LABEL[a.kind]} 압축 파일은 브라우저에서 풀 수 없습니다. 통째로 저장한 뒤 압축 프로그램으로 여세요.`}</p>`;
+  }
+  return `<section class="card"><div class="card-head"><h3>숨겨진 첨부 파일</h3><span class="count">${ATT_LABEL[a.kind]} · ${fmtBytes(a.size)}${a.entries ? ` · 파일 ${files.length}개` : ''}</span>
+      ${imgs.length ? `<button class="btn sm" data-att="${attRef({ act: 'openall', item })}">이미지 ${imgs.length}장 모두 열기</button>` : ''}
+      <button class="btn sm" data-att="${attRef({ act: 'saveall', item })}">${a.kind === 'unknown' ? '데이터' : ATT_LABEL[a.kind]} 통째로 저장</button></div>
+    ${body}
+    <p class="empty-note">이미지 뒤에 이어 붙여 숨긴 파일입니다. 뷰어는 첨부 파일을 실행하지 않습니다. ⚠ 표시 파일은 저장을 두 번 눌러야 저장되며, 출처를 모르는 파일은 실행하지 마세요.</p></section>`;
+}
+async function attAction(ref, el) {
+  const { act, item, e } = ref, a = item.result.attach;
+  if (act === 'save' && ref.risky && el.dataset.armed !== '1') {
+    el.dataset.armed = '1'; el.classList.add('armed'); el.textContent = '한 번 더 누르면 저장';
+    toast('실행될 수 있는 파일입니다. 출처를 믿을 수 있을 때만 저장하세요', 3000);
+    return;
+  }
+  try {
+    const t = new Uint8Array(await item.file.arrayBuffer()).subarray(a.offset);
+    if (act === 'saveall') { saveFile(safeName(`${item.file.name.replace(/\.[^.]+$/, '')}_첨부.${a.kind === 'unknown' ? 'bin' : a.kind}`), t, 'application/octet-stream'); return; }
+    if (act === 'save') { saveFile(safeName(e.base), await extractZipEntry(t, e), 'application/octet-stream'); return; }
+    const list = act === 'open' ? [e] : a.entries.filter(x => !zipJunk(x) && !x.encrypted && IMG_EXT.test(x.base));
+    toast('압축을 푸는 중…', 60000);
+    const out = [];
+    for (const x of list) {
+      try { out.push({ file: zipEntryFile(x, await extractZipEntry(t, x, 200 * 1024 * 1024)), zip: `${item.file.name} › 숨겨진 ZIP`, path: x.name }); } catch {}
+    }
+    if (!out.length) { toast('열 수 있는 이미지가 없습니다'); return; }
+    toast(`이미지 ${out.length}장을 열었습니다`);
+    await addItems(out);
+  } catch (err) { toast(`첨부 파일 처리 실패: ${err.message}`, 3000); }
+}
+
 function sigCard(sig) {
   if (!sig) return '';
   const stat = v => v === 'ok' ? '<span class="rstat ok">일치</span>NAI가 생성한 원본 그대로입니다'
@@ -1247,14 +1306,18 @@ function rawSection(item) {
 
 /* 썸네일 줄은 파일을 추가/삭제할 때만 다시 만들고, 선택이 바뀔 때는 표시만 갱신 (스크롤 위치 유지) */
 const GEN_SHORT = { nai: 'NAI', a1111: 'SD', comfy: 'Comfy' };
-const noMeta = it => it.result && !it.result.gen;
-const genTag = it => !it.result ? '<span class="tb">···</span>'
-  : it.result.gen ? `<span class="tb">${GEN_SHORT[it.result.gen.kind]}${it.result.gen.refs && refList(it.result.gen.refs).length ? '·R' : ''}</span>` : '<span class="tb none">없음</span>';
+const noMeta = it => it.result && !it.result.gen && !it.result.attach; // 숨겨진 첨부가 있으면 빼기 대상 아님
+const genTag = it => {
+  if (!it.result) return '<span class="tb">···</span>';
+  const g = it.result.gen, clip = it.result.attach ? '📎' : '';
+  if (!g) return clip ? `<span class="tb">${clip}</span>` : '<span class="tb none">없음</span>';
+  return `<span class="tb">${GEN_SHORT[g.kind]}${g.refs && refList(g.refs).length ? '·R' : ''}${clip}</span>`;
+};
 const itemId = it => `${it.path || it.file.name}|${it.file.size}|${it.file.lastModified}`;
 const looseId = id => id.slice(0, id.lastIndexOf('|')); // 이름 + 크기 (수정 시각 제외)
 const isFav = it => favs.has(itemId(it)) || looseFavs.has(looseId(itemId(it)));
 const favTag = it => isFav(it) ? '<span class="fv">★</span>' : '';
-const thumbTitle = (it, i) => `${i + 1}. ${it.path || it.file.name}${noMeta(it) ? ' · 메타데이터 없음' : ''}${it.result?.gen?.refs && refList(it.result.gen.refs).length ? ' · 레퍼런스: ' + refText(it.result.gen) : ''}`;
+const thumbTitle = (it, i) => `${i + 1}. ${it.path || it.file.name}${noMeta(it) ? ' · 메타데이터 없음' : ''}${it.result?.gen?.refs && refList(it.result.gen.refs).length ? ' · 레퍼런스: ' + refText(it.result.gen) : ''}${it.result?.attach ? ' · 숨겨진 첨부: ' + ATT_LABEL[it.result.attach.kind] : ''}`;
 // 메타데이터 없는 이미지 개수 버튼 (분석이 끝난 이미지 기준)
 function updateDropBtn() {
   const n = state.items.filter(noMeta).length, b = $('#btnDropNoMeta');
@@ -1377,7 +1440,7 @@ state.q = { inc: [], exc: [], sInc: [], sExc: [], scope: 'all' };
 let qRe = null;
 // 설정 검색: seed:1234, steps:>=28, sampler:euler, model:v4.5, size:832x1216
 const SKEYS = { seed: 'seed', steps: 'steps', step: 'steps', scale: 'scale', cfg: 'scale', guidance: 'scale', rescale: 'rescale',
-  sampler: 'sampler', schedule: 'schedule', scheduler: 'schedule', model: 'model', size: 'size', res: 'size', effort: 'effort', ref: 'ref', variant: 'model', bg: 'bg', sig: 'sig' };
+  sampler: 'sampler', schedule: 'schedule', scheduler: 'schedule', model: 'model', size: 'size', res: 'size', effort: 'effort', ref: 'ref', variant: 'model', bg: 'bg', sig: 'sig', attach: 'attach' };
 const SLABEL = { '시드': 'seed', 'Seed': 'seed', 'seed': 'seed', 'noise_seed': 'seed', '스텝': 'steps', 'Steps': 'steps', 'steps': 'steps',
   '프롬프트 가이던스': 'scale', 'CFG scale': 'scale', 'cfg': 'scale', '가이던스 리스케일': 'rescale', '샘플러': 'sampler', 'Sampler': 'sampler',
   'sampler_name': 'sampler', '노이즈 스케줄': 'schedule', 'Schedule type': 'schedule', 'scheduler': 'schedule', '모델': 'model', 'Model': 'model',
@@ -1403,6 +1466,7 @@ function itemSettings(it) {
     out.ref = t.length ? t.join(' ') : 'none';
   }
   if (it.result.sig) out.sig = it.result.sig.status; // sig:ok · sig:bad · sig:none
+  out.attach = it.result.attach ? it.result.attach.kind : 'none'; // attach:zip · attach:any · attach:none
   return (it.sets = out);
 }
 function matchSetting(sets, f) {
@@ -1410,6 +1474,7 @@ function matchSetting(sets, f) {
   if (v == null) return false;
   if (f.key === 'size') return normSize(v).includes(normSize(f.val));
   if (f.key === 'ref') return f.val === 'any' ? v !== 'none' : v.split(' ').includes(f.val);
+  if (f.key === 'attach') return f.val === 'any' ? v !== 'none' : v === f.val;
   const num = parseFloat(v), q = parseFloat(f.val);
   if (NUM_KEYS.includes(f.key) && !isNaN(num) && !isNaN(q))
     return f.op === '>' ? num > q : f.op === '<' ? num < q : f.op === '>=' ? num >= q : f.op === '<=' ? num <= q : num === q;
@@ -1595,6 +1660,7 @@ function renderCompare() {
 
 function render() {
   clips = [];
+  atts = [];
   const main = $('#main');
 
   if (state.current < 0) {
@@ -1634,6 +1700,8 @@ function render() {
       <li>브라우저에서 "이미지 복사" 후 붙여넣은 경우에도 정보가 사라집니다. 원본 파일을 직접 열어 주세요.</li>
       <li>아래 원본 메타데이터에서 파일에 남아 있는 다른 정보를 확인할 수 있습니다.</li></ul></div>`;
   }
+  if (r.attach) badges.splice(1, 0, `<span class="badge attb">📎 숨겨진 ${ATT_LABEL[r.attach.kind]}${r.attach.entries ? ` · 파일 ${r.attach.entries.filter(e => !zipJunk(e)).length}개` : ''}</span>`);
+  content = g ? content + attachCard(item) : attachCard(item) + content; // 생성 정보가 없으면 첨부가 핵심이라 위로
   content += rawSection(item);
 
   main.innerHTML = `<div class="layout">
@@ -1660,28 +1728,32 @@ function zipName(bytes, utf8Flag) {
   try { return utf8(bytes, true); } catch {}
   try { return new TextDecoder('euc-kr').decode(bytes); } catch { return latin1(bytes); }
 }
-async function unzipImages(file) {
-  const u8 = new Uint8Array(await file.arrayBuffer());
-  const dv = new DataView(u8.buffer);
+// ZIP 목차(central directory)만 읽음. 압축은 풀지 않음
+function listZip(u8) {
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const in32 = o => o >= 0 && o + 4 <= u8.length;
   let eocd = -1;
   for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
   if (eocd < 0) throw new Error('올바른 ZIP 파일이 아닙니다');
-  let count = dv.getUint16(eocd + 10, true), cdOff = dv.getUint32(eocd + 16, true);
+  let count = dv.getUint16(eocd + 10, true), cdSize = dv.getUint32(eocd + 12, true), cdOff = dv.getUint32(eocd + 16, true);
   if ((cdOff === 0xFFFFFFFF || count === 0xFFFF) && eocd >= 20 && dv.getUint32(eocd - 20, true) === 0x07064b50) {
     const z64 = Number(dv.getBigUint64(eocd - 12, true));
-    count = Number(dv.getBigUint64(z64 + 32, true)); cdOff = Number(dv.getBigUint64(z64 + 48, true));
+    if (in32(z64 + 52)) { count = Number(dv.getBigUint64(z64 + 32, true)); cdOff = Number(dv.getBigUint64(z64 + 48, true)); }
   }
-  const images = [];
-  let skipped = 0, encrypted = 0, p = cdOff;
+  // 이미지 뒤에 붙인 ZIP처럼 위치가 밀린 경우: 실제 목차 위치와 기록된 위치의 차이만큼 보정
+  let delta = 0;
+  if (!(in32(cdOff) && dv.getUint32(cdOff, true) === 0x02014b50) && in32(eocd - cdSize) && dv.getUint32(eocd - cdSize, true) === 0x02014b50) delta = eocd - cdSize - cdOff;
+  const entries = [];
+  let p = cdOff + delta;
   for (let n = 0; n < count && p + 46 <= u8.length && dv.getUint32(p, true) === 0x02014b50; n++) {
     const flags = dv.getUint16(p + 8, true), method = dv.getUint16(p + 10, true);
     const time = dv.getUint16(p + 12, true), date = dv.getUint16(p + 14, true);
     let csize = dv.getUint32(p + 20, true), usize = dv.getUint32(p + 24, true), lho = dv.getUint32(p + 42, true);
     const nl = dv.getUint16(p + 28, true), el = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true);
     let name = zipName(u8.subarray(p + 46, p + 46 + nl), flags & 0x800);
-    for (let e = p + 46 + nl, end = e + el; e + 4 <= end;) {
+    for (let e = p + 46 + nl, end = Math.min(e + el, u8.length); e + 4 <= end;) {
       const id = dv.getUint16(e, true), sz = dv.getUint16(e + 2, true);
-      if (id === 0x0001) { // ZIP64 크기/위치
+      if (id === 0x0001 && e + 4 + sz <= u8.length) { // ZIP64 크기/위치
         let q = e + 4;
         if (usize === 0xFFFFFFFF) { usize = Number(dv.getBigUint64(q, true)); q += 8; }
         if (csize === 0xFFFFFFFF) { csize = Number(dv.getBigUint64(q, true)); q += 8; }
@@ -1690,20 +1762,102 @@ async function unzipImages(file) {
       e += 4 + sz;
     }
     p += 46 + nl + el + cl;
-    const base = name.split('/').pop();
-    if (name.endsWith('/') || !IMG_EXT.test(base) || name.startsWith('__MACOSX/') || base.startsWith('._')) continue;
-    if (flags & 1) { encrypted++; continue; }
-    if (dv.getUint32(lho, true) !== 0x04034b50) { skipped++; continue; }
-    const start = lho + 30 + dv.getUint16(lho + 26, true) + dv.getUint16(lho + 28, true);
-    let data = u8.subarray(start, start + csize);
-    try {
-      if (method === 8) data = await inflate(data, 'deflate-raw');
-      else if (method !== 0) { skipped++; continue; }
-    } catch { skipped++; continue; }
-    const type = MIME[base.split('.').pop().toLowerCase()] || '';
-    images.push({ file: new File([data], base, { type, lastModified: dosTime(time, date) }), path: name });
+    entries.push({ name, base: name.split('/').pop(), dir: name.endsWith('/'), encrypted: !!(flags & 1), method, csize, usize, lho: lho + delta, time, date });
+  }
+  return { entries };
+}
+// 압축 폭탄 방지: 풀린 크기가 상한을 넘으면 멈춤
+async function inflateCapped(u8, format, cap) {
+  const reader = new Blob([u8]).stream().pipeThrough(new DecompressionStream(format)).getReader();
+  const parts = [];
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.length;
+    if (n > cap) { reader.cancel(); throw new Error(`풀면 ${fmtBytes(cap)}를 넘어서 멈췄습니다`); }
+    parts.push(value);
+  }
+  const out = new Uint8Array(n);
+  let o = 0;
+  parts.forEach(v => { out.set(v, o); o += v.length; });
+  return out;
+}
+async function extractZipEntry(u8, e, cap = 512 * 1024 * 1024) {
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  if (e.lho + 30 > u8.length || dv.getUint32(e.lho, true) !== 0x04034b50) throw new Error('파일 위치가 올바르지 않습니다');
+  const start = e.lho + 30 + dv.getUint16(e.lho + 26, true) + dv.getUint16(e.lho + 28, true);
+  const data = u8.subarray(start, start + e.csize);
+  if (e.method === 0) return data;
+  if (e.method === 8) return inflateCapped(data, 'deflate-raw', cap);
+  throw new Error('지원하지 않는 압축 방식입니다');
+}
+const zipEntryFile = (e, data) => new File([data], e.base, { type: MIME[e.base.split('.').pop().toLowerCase()] || '', lastModified: dosTime(e.time, e.date) });
+const zipJunk = e => e.dir || e.name.startsWith('__MACOSX/') || e.base.startsWith('._');
+async function unzipImages(file) {
+  const u8 = new Uint8Array(await file.arrayBuffer());
+  const images = [];
+  let skipped = 0, encrypted = 0;
+  for (const e of listZip(u8).entries) {
+    if (zipJunk(e) || !IMG_EXT.test(e.base)) continue;
+    if (e.encrypted) { encrypted++; continue; }
+    try { images.push({ file: zipEntryFile(e, await extractZipEntry(u8, e, 200 * 1024 * 1024)), path: e.name }); }
+    catch { skipped++; }
   }
   return { images, skipped, encrypted };
+}
+
+/* ---------- 이미지 뒤에 숨겨 붙인 파일 (예: copy /b 그림.png + 파일.zip) ---------- */
+const ATT_LABEL = { zip: 'ZIP', rar: 'RAR', '7z': '7z', unknown: '알 수 없는 데이터' };
+// 이미지가 실제로 끝나는 위치
+function imageEndOffset(u8, format) {
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  if (format === 'PNG') {
+    for (let p = 8; p + 12 <= u8.length;) {
+      const len = dv.getUint32(p);
+      if (ascii(u8, p + 4, 4) === 'IEND') return p + 12 + len;
+      p += 12 + len;
+    }
+    return -1;
+  }
+  if (format === 'JPEG') {
+    let p = 2;
+    while (p + 4 <= u8.length) { // 첫 스캔(SOS)까지 세그먼트를 건너뜀 (EXIF 썸네일 안의 끝 표시는 무시)
+      if (u8[p] !== 0xFF) { p++; continue; }
+      const m = u8[p + 1];
+      if (m === 0xFF || m === 0xD8 || m === 0x01 || (m >= 0xD0 && m <= 0xD7)) { p += m === 0xFF ? 1 : 2; continue; }
+      if (m === 0xD9) return p + 2;
+      if (m === 0xDA) break;
+      p += 2 + ((u8[p + 2] << 8) | u8[p + 3]);
+    }
+    for (let i = p + 2; i + 1 < u8.length; i++) if (u8[i] === 0xFF && u8[i + 1] === 0xD9) return i + 2;
+    return -1;
+  }
+  if (format === 'WebP') { const n = dv.getUint32(4, true); return 8 + n + (n & 1); }
+  return -1;
+}
+function findBytes(u8, sig, limit) {
+  for (let i = 0, n = Math.min(u8.length - sig.length, limit); i <= n; i++) {
+    let k = 0;
+    while (k < sig.length && u8[i + k] === sig[k]) k++;
+    if (k === sig.length) return i;
+  }
+  return -1;
+}
+function detectAttachment(u8, format) {
+  const end = imageEndOffset(u8, format);
+  if (end <= 0 || end >= u8.length) return null;
+  const t = u8.subarray(end);
+  if (t.length < 16 || t.every(b => b === 0)) return null;
+  const sigs = [['zip', [0x50, 0x4B, 0x03, 0x04]], ['zip', [0x50, 0x4B, 0x05, 0x06]], ['rar', [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07]], ['7z', [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]]];
+  let kind = '', at = -1;
+  for (const [k, sig] of sigs) { const i = findBytes(t, sig, 4096); if (i >= 0 && (at < 0 || i < at)) { kind = k; at = i; } }
+  if (!kind) return t.length >= 1024 ? { kind: 'unknown', offset: end, size: t.length } : null;
+  const att = { kind, offset: end + at, size: t.length - at };
+  if (kind === 'zip') {
+    try { att.entries = listZip(t.subarray(at)).entries; } catch (e) { att.error = e.message; }
+  }
+  return att;
 }
 
 /* ---------- 파일 입력 ---------- */
@@ -1723,6 +1877,9 @@ async function addFiles(files) {
   }
   if (zipNotes.length) toast(zipNotes.join(' / '), 3500);
   if (!list.length) { if (!zipNotes.length) toast('이미지 파일이 아닙니다'); return; }
+  await addItems(list);
+}
+async function addItems(list) {
   // 선택한 정렬 방식대로 전체 목록을 다시 배치하고, 새로 넣은 것 중 가장 왼쪽 이미지를 보여 줌
   const added = list.map(x => ({ ...x, url: URL.createObjectURL(x.file), result: null }));
   state.items.push(...added);
@@ -1966,12 +2123,12 @@ function exportCSV(items) {
   const maxChars = Math.max(0, ...items.map(it => it.result.gen?.chars?.length || 0));
   const head = ['번호', '파일명', '압축 파일', '즐겨찾기', '생성 도구', '모델', '긍정 프롬프트', '부정 프롬프트'];
   for (let i = 1; i <= maxChars; i++) head.push(`캐릭터 ${i} 긍정`, `캐릭터 ${i} 부정`);
-  head.push('시드', '스텝', '가이던스', '샘플러', '해상도', 'Effort', '레퍼런스', 'NAI 서명');
+  head.push('시드', '스텝', '가이던스', '샘플러', '해상도', 'Effort', '레퍼런스', 'NAI 서명', '숨겨진 첨부');
   const rows = items.map(it => {
     const g = it.result.gen, st = settingsOf(g);
     const r = [state.items.indexOf(it) + 1, it.path || it.file.name, it.zip || '', isFav(it) ? '★' : '', g ? GEN_LABEL[g.kind] : '메타데이터 없음', g?.model || '', g?.positive || '', g?.negative || ''];
     for (let i = 0; i < maxChars; i++) r.push(g?.chars?.[i]?.positive || '', g?.chars?.[i]?.negative || '');
-    r.push(st.seed ?? '', st.steps ?? '', st.scale ?? '', st.sampler ?? '', st.size ?? '', st.effort ?? '', refText(g), it.result.sig ? SIG_TEXT[it.result.sig.status] : '');
+    r.push(st.seed ?? '', st.steps ?? '', st.scale ?? '', st.sampler ?? '', st.size ?? '', st.effort ?? '', refText(g), it.result.sig ? SIG_TEXT[it.result.sig.status] : '', it.result.attach ? ATT_LABEL[it.result.attach.kind] : '');
     return r;
   });
   return '\uFEFF' + [head, ...rows].map(r => r.map(csvCell).join(',')).join('\r\n');
@@ -1990,9 +2147,11 @@ function exportText(items) {
     return lines.join('\n');
   }).join('\n\n');
 }
-function saveFile(name, text, type) {
+// 저장 이름에서 경로와 쓸 수 없는 문자를 지움 (ZIP 안의 이름은 만든 사람이 마음대로 정할 수 있음)
+const safeName = n => (String(n).split(/[\\/]/).pop() || '').replace(/[\x00-\x1f<>:"|?*]/g, '_').replace(/^\.+/, '').slice(0, 150) || 'file';
+function saveFile(name, data, type) {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.href = URL.createObjectURL(new Blob([data], { type }));
   a.download = name;
   document.body.appendChild(a);
   a.click();
@@ -2117,6 +2276,8 @@ document.addEventListener('click', e => {
   if (e.target.closest('#composeClear')) { compose.length = 0; renderCompose(); return; }
   const cv = e.target.closest('[data-cmpview]');
   if (cv && state.compare) { viewer.show(state.compare[cv.dataset.cmpview]); return; }
+  const at = e.target.closest('[data-att]');
+  if (at) { attAction(atts[+at.dataset.att], at); return; }
   const ex = e.target.closest('[data-exp]');
   if (ex) { doExport(ex.dataset.exp); return; }
   const sb = e.target.closest('[data-stat]');
