@@ -207,6 +207,12 @@ mark.q { background: var(--hit-soft); color: inherit; border-radius: 3px; box-sh
   font: 700 11px/1 system-ui, sans-serif; color: var(--panel); background: var(--accent);
 }
 .thumb[data-ab="B"]::after { background: var(--pos); }
+/* 썸네일 한 장 빼기 (×) — 마우스를 올렸거나 지금 보는 이미지일 때만 보임 */
+.thumb .rmx { position: absolute; left: 3px; top: 3px; z-index: 1; display: none; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%;
+  font: 700 13px/1 system-ui, sans-serif; color: #fff; background: rgba(0,0,0,.7); cursor: pointer; }
+.thumb .rmx:hover { background: var(--neg); }
+.thumb:hover .rmx, .thumb.active .rmx { display: flex; }
+.thumb[data-ab="A"] .rmx, .thumb[data-ab="B"] .rmx { display: none; }
 
 /* 태그 비교 화면 */
 .cmp { display: flex; flex-direction: column; gap: 14px; }
@@ -1403,13 +1409,18 @@ function removeItems(list) {
   renderStrip();
   render();
 }
+function removeOne(it) {
+  if (!it) return;
+  removeItems([it]);
+  toast(`${it.path || it.file.name} 을(를) 목록에서 뺐습니다 · 원본 파일은 그대로입니다`, 2500);
+}
 function renderStrip() {
   updateDropBtn();
   $('#btnClear').hidden = state.items.length === 0;
   $('#sortSel').hidden = state.items.length < 2;
   $('#stripWrap').classList.toggle('show', state.items.length > 0);
   $('#strip').innerHTML = state.items.map((it, i) =>
-    `<button class="thumb ${noMeta(it) ? 'nometa' : ''}" data-idx="${i}" title="${esc(thumbTitle(it, i))}"><img src="${it.url}" alt=""><span class="no">${i + 1}</span>${genTag(it)}${favTag(it)}</button>`).join('');
+    `<button class="thumb ${noMeta(it) ? 'nometa' : ''}" data-idx="${i}" title="${esc(thumbTitle(it, i))}"><img src="${it.url}" alt=""><span class="no">${i + 1}</span><span class="rmx" data-rmimg="${i}" role="button" aria-label="목록에서 빼기" title="목록에서 빼기 (Delete 키) · 원본 파일은 지워지지 않습니다">×</span>${genTag(it)}${favTag(it)}</button>`).join('');
   markActive();
 }
 function updateThumb(i) {
@@ -2087,7 +2098,7 @@ function render() {
     <aside class="preview">
       <div class="imgbox ${g ? '' : 'nometa'}"><img src="${item.url}" alt="${esc(item.file.name)}" id="previewImg" title="클릭하면 확대해서 봅니다">${g ? '' : '<span class="nometa-flag">메타데이터 없음</span>'}</div>
       <div class="fileinfo"><b>${esc(item.file.name)}</b>${esc(r.format)} · ${r.width ? `${r.width} × ${r.height} · ` : ''}${fmtBytes(item.file.size)}${item.zip ? `<span class="zip">압축 파일: ${esc(item.zip)} › ${esc(item.path)}</span>` : ''}</div>
-      <div class="pactions"><button class="btn sm favbtn" id="favBtn" aria-pressed="${isFav(item)}" title="F 키로도 바꿀 수 있습니다">${isFav(item) ? '★ 즐겨찾기됨' : '☆ 즐겨찾기'}</button></div>
+      <div class="pactions"><button class="btn sm favbtn" id="favBtn" aria-pressed="${isFav(item)}" title="F 키로도 바꿀 수 있습니다">${isFav(item) ? '★ 즐겨찾기됨' : '☆ 즐겨찾기'}</button><button class="btn sm" id="rmBtn" title="Delete 키로도 뺄 수 있습니다 · 원본 파일은 지워지지 않습니다">목록에서 빼기</button></div>
     </aside>
     <div class="stack">
       <div class="summary">${badges.join('')}</div>
@@ -2706,6 +2717,7 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'Escape' && state.compare) endCompare();
   else if (e.key === 'Escape' && state.composeMode) { state.composeMode = false; updateCompareBtn(); render(); }
   else if ((e.key === 'f' || e.key === 'F') && !state.compare && state.items[state.current]) toggleFav(state.items[state.current]);
+  else if (e.key === 'Delete' && !state.compare && !viewer.open && state.items[state.current]) { e.preventDefault(); removeOne(state.items[state.current]); }
 });
 $('#btnTags').onclick = () => {
   state.tagView = !state.tagView;
@@ -2767,6 +2779,9 @@ document.addEventListener('click', e => {
   if (ss) { state.stats.scope = ss.dataset.sscope; renderStats(); return; }
   if (e.target.closest('#statsMore')) { state.stats.all = !state.stats.all; renderStats(); return; }
   if (e.target.closest('#favBtn')) { toggleFav(state.items[state.current]); return; }
+  if (e.target.closest('#rmBtn')) { removeOne(state.items[state.current]); return; }
+  const rx = e.target.closest('[data-rmimg]');
+  if (rx) { removeOne(state.items[+rx.dataset.rmimg]); return; }
   const c = e.target.closest('[data-copy]');
   if (c) { copyText(clips[+c.dataset.copy]); return; }
   const t = e.target.closest('.thumb');
