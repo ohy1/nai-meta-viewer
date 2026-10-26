@@ -519,10 +519,11 @@ pre { margin: 0; padding: 8px 14px 12px; font-size: 12px; white-space: pre-wrap;
           <button data-exp="copy">TXT 내용 복사</button>
           <p class="menu-note" id="expNote"></p>
           <hr class="menu-sep">
-          <button data-exp="favsave">즐겨찾기 목록 백업 (.json)</button>
-          <button data-exp="favload">즐겨찾기 목록 불러오기</button>
+          <button data-exp="favzip">즐겨찾기 이미지와 함께 백업 (.zip)</button>
+          <button data-exp="favsave">즐겨찾기 목록만 백업 (.json)</button>
+          <button data-exp="favload">즐겨찾기 불러오기 (.zip / .json)</button>
           <p class="menu-note" id="favNote"></p>
-          <input type="file" id="favInput" accept=".json,application/json" hidden>
+          <input type="file" id="favInput" accept=".json,.zip,application/json,application/zip" hidden>
         </div>
       </details>
       <button class="btn" id="btnCompose" aria-pressed="false" title="태그를 골라 모아 새 프롬프트 만들기 (이미지 1장으로도 가능)">태그 합성</button>
@@ -2057,7 +2058,7 @@ function render() {
       <p>Ctrl+V 로 붙여넣기도 됩니다 · 여러 장이나 ZIP 파일도 한 번에 열 수 있어요</p>
       <p>NovelAI 이미지는 긍정 / 부정 / 캐릭터별 프롬프트로 나누어 보여 줍니다</p>
       <p class="formats">PNG · JPEG · WebP · ZIP 지원 · NovelAI, Stable Diffusion WebUI, ComfyUI, EXIF 해석 · 모든 처리는 이 컴퓨터 안에서만 이뤄집니다</p>
-      <p class="drop-actions"><button class="btn sm" data-exp="favload">즐겨찾기 목록 불러오기</button> <span class="poslabel">이 브라우저에 즐겨찾기 ${favs.size}개 저장됨</span></p>
+      <p class="drop-actions"><button class="btn sm" data-exp="favload">즐겨찾기 불러오기 (.zip / .json)</button> <span class="poslabel">이 브라우저에 즐겨찾기 ${favs.size}개 저장됨</span></p>
     </div>`;
     return;
   }
@@ -2188,13 +2189,15 @@ async function unzipImages(file) {
   const u8 = new Uint8Array(await file.arrayBuffer());
   const images = [];
   let skipped = 0, encrypted = 0;
+  let favList = null;
   for (const e of listZip(u8).entries) {
+    if (e.name === FAV_JSON && !e.encrypted) { try { favList = favItems(JSON.parse(utf8(await extractZipEntry(u8, e, 5 * 1024 * 1024)))); } catch {} continue; }
     if (zipJunk(e) || !IMG_EXT.test(e.base)) continue;
     if (e.encrypted) { encrypted++; continue; }
     try { images.push({ file: zipEntryFile(e, await extractZipEntry(u8, e, 200 * 1024 * 1024)), path: e.name }); }
     catch { skipped++; }
   }
-  return { images, skipped, encrypted };
+  return { images, skipped, encrypted, favs: favList };
 }
 
 /* ---------- 이미지 뒤에 숨겨 붙인 파일 (예: copy /b 그림.png + 파일.zip) ---------- */
@@ -2284,6 +2287,7 @@ async function addFiles(files) {
       try {
         const z = await unzipImages(f);
         z.images.forEach(x => list.push({ file: x.file, zip: f.name, path: x.path }));
+        if (z.favs) { const n = mergeFavs(z.favs); zipNotes.push(`즐겨찾기 백업 · 목록 ${z.favs.length}개 (새로 추가 ${n}개)`); }
         zipNotes.push(`${f.name}: 이미지 ${z.images.length}장`
           + (z.encrypted ? ` · 암호 걸린 파일 ${z.encrypted}개 제외` : '') + (z.skipped ? ` · 풀 수 없는 파일 ${z.skipped}개 제외` : ''));
       } catch (e) { zipNotes.push(`${f.name}: ${e.message}`); }
@@ -2489,6 +2493,81 @@ function toggleFav(it) {
   toast(on ? '즐겨찾기에 추가했습니다' : '즐겨찾기를 해제했습니다');
   if (state.favOnly) applySearch(); else { markActive(); if (!state.compare) render(); }
 }
+const FAV_JSON = 'nai-meta-favorites.json';
+// 백업 파일의 목록 (배열 또는 { items }) — "이름|크기|시각" 문자열만 받음
+function favItems(data) {
+  const items = Array.isArray(data) ? data : data?.items;
+  if (!Array.isArray(items) || items.some(x => typeof x !== 'string' || !x.includes('|'))) throw new Error('not favorites');
+  return items;
+}
+function mergeFavs(items) {
+  const before = favs.size;
+  items.forEach(x => favs.add(x));
+  saveFavs();
+  return favs.size - before;
+}
+/* 압축하지 않는(저장 방식) ZIP 만들기. 원본 바이트를 그대로 넣으므로 메타데이터 · NAI 서명이 그대로 남음 */
+const zipPath = n => String(n).split(/[\\/]+/).filter(x => x && x !== '.' && x !== '..').map(safeName).join('/') || 'file';
+const toDos = ms => {
+  const d = new Date(ms || Date.now()), y = Math.max(1980, d.getFullYear());
+  return { time: (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1), date: ((y - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate() };
+};
+async function makeZip(files, onStep) {
+  const parts = [], central = [], enc = new TextEncoder();
+  let off = 0;
+  for (let i = 0; i < files.length; i++) {
+    const { name, data, mtime } = files[i];
+    const bytes = data instanceof Blob ? new Uint8Array(await data.arrayBuffer()) : data;
+    const crc = crc32(bytes), size = bytes.length, nm = enc.encode(name), { time, date } = toDos(mtime);
+    if (off + size > 0xFFFFFFF0) throw new Error('4GB를 넘어서 ZIP 하나로 만들 수 없습니다');
+    const head = (sig, extra) => {
+      const h = new Uint8Array(extra + nm.length), v = new DataView(h.buffer);
+      v.setUint32(0, sig, true);
+      return [h, v];
+    };
+    const [lh, lv] = head(0x04034b50, 30);
+    lv.setUint16(4, 20, true); lv.setUint16(6, 0x0800, true); lv.setUint16(8, 0, true); // UTF-8 이름 · 압축 없음
+    lv.setUint16(10, time, true); lv.setUint16(12, date, true); lv.setUint32(14, crc, true); lv.setUint32(18, size, true); lv.setUint32(22, size, true);
+    lv.setUint16(26, nm.length, true); lh.set(nm, 30);
+    const [ch, cv] = head(0x02014b50, 46);
+    cv.setUint16(4, 20, true); cv.setUint16(6, 20, true); cv.setUint16(8, 0x0800, true); cv.setUint16(10, 0, true);
+    cv.setUint16(12, time, true); cv.setUint16(14, date, true); cv.setUint32(16, crc, true); cv.setUint32(20, size, true); cv.setUint32(24, size, true);
+    cv.setUint16(28, nm.length, true); cv.setUint32(42, off, true); ch.set(nm, 46);
+    parts.push(lh, data); central.push(ch);
+    off += lh.length + size;
+    onStep?.(i + 1);
+  }
+  const cdSize = central.reduce((n, c) => n + c.length, 0), end = new Uint8Array(22), ev = new DataView(end.buffer);
+  ev.setUint32(0, 0x06054b50, true); ev.setUint16(8, files.length, true); ev.setUint16(10, files.length, true); ev.setUint32(12, cdSize, true); ev.setUint32(16, off, true);
+  return new Blob([...parts, ...central, end], { type: 'application/zip' });
+}
+async function saveFavZip() {
+  const seen = new Set(), imgs = state.items.filter(it => { // 같은 이름 · 크기의 파일이 두 번 열려 있으면 한 번만
+    const k = looseId(itemId(it));
+    return isFav(it) && !seen.has(k) && seen.add(k);
+  });
+  if (!imgs.length) { toast(favs.size ? '지금 열려 있는 이미지 중에 즐겨찾기한 것이 없습니다 · 목록만 저장하려면 .json 백업을 쓰세요' : '백업할 즐겨찾기가 없습니다', 3500); return; }
+  if (imgs.length > 60000) { toast('한 번에 60000장까지 담을 수 있습니다', 3000); return; }
+  const used = new Set(), files = [], ids = [];
+  for (const it of imgs) {
+    let name = zipPath(it.path || it.file.name);
+    for (let k = 2; used.has(name.toLowerCase()); k++) name = zipPath(it.path || it.file.name).replace(/(\.[^./]*)?$/, m => ` (${k})${m}`);
+    used.add(name.toLowerCase());
+    files.push({ name, data: it.file, mtime: it.file.lastModified });
+    ids.push(`${name}|${it.file.size}|${it.file.lastModified}`); // 이 ZIP을 다시 열었을 때의 이름으로도 기억
+  }
+  const list = [...new Set([...favs, ...ids])];
+  files.push({ name: FAV_JSON, data: new TextEncoder().encode(JSON.stringify({ app: 'nai-meta-viewer', type: 'favorites', version: 1, savedAt: new Date().toISOString(), items: list }, null, 2)), mtime: Date.now() });
+  try {
+    const blob = await makeZip(files, n => toast(`즐겨찾기 ZIP 만드는 중… ${Math.min(n, imgs.length)} / ${imgs.length}`, 60000));
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = `nai-meta-favorites-${stampNow()}.zip`;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    const missing = [...looseFavs].filter(k => !seen.has(k)).length;
+    toast(`즐겨찾기 이미지 ${imgs.length}장을 ZIP으로 저장했습니다 (${(blob.size / 1048576).toFixed(1)} MB)` + (missing > 0 ? ` · 열려 있지 않은 ${missing}개는 목록에만 들어갑니다` : ''), 4500);
+  } catch (e) { toast(`ZIP을 만들지 못했습니다: ${e.message}`, 3500); }
+}
 $('#btnFavOnly').onclick = () => {
   state.favOnly = !state.favOnly;
   $('#btnFavOnly').setAttribute('aria-pressed', state.favOnly);
@@ -2585,6 +2664,7 @@ function doExport(kind) {
     return;
   }
   if (kind === 'favload') { $('#favInput').click(); return; }
+  if (kind === 'favzip') { saveFavZip(); return; }
   const items = state.items.filter(it => it.result && matches(it));
   if (!items.length) { toast('내보낼 이미지가 없습니다'); return; }
   const stamp = stampNow();
@@ -2596,23 +2676,20 @@ $('#expMenu').addEventListener('toggle', () => {
   if (!$('#expMenu').open) return;
   const n = state.items.filter(it => it.result && matches(it)).length;
   $('#expNote').textContent = filtering() ? `검색 결과 ${n}장을 내보냅니다` : `열어 둔 ${n}장을 모두 내보냅니다`;
-  $('#favNote').textContent = `이 브라우저에 즐겨찾기 ${favs.size}개 저장됨 · 불러오면 기존 목록에 합쳐집니다`;
+  $('#favNote').textContent = `이 브라우저에 즐겨찾기 ${favs.size}개 저장됨 (지금 열린 이미지 중 ${state.items.filter(isFav).length}장) · ZIP에는 열린 이미지만 원본 그대로 들어갑니다 · 불러오면 기존 목록에 합쳐집니다`;
 });
 // 즐겨찾기 불러오기: 기존 목록에 합침
 $('#favInput').onchange = async e => {
   const f = e.target.files[0];
   e.target.value = '';
   if (!f) return;
+  if (isZip(f)) { addFiles([f]); return; } // 이미지와 함께 저장한 백업: 이미지를 열고 목록도 합침
   try {
-    const data = JSON.parse(await f.text());
-    const items = Array.isArray(data) ? data : data?.items;
-    if (!Array.isArray(items) || items.some(x => typeof x !== 'string' || !x.includes('|'))) throw new Error();
-    const before = favs.size;
-    items.forEach(x => favs.add(x));
-    saveFavs();
+    const items = favItems(JSON.parse(await f.text()));
+    const n = mergeFavs(items);
     renderStrip();
     if (state.favOnly) applySearch(); else render();
-    toast(`즐겨찾기 ${items.length}개를 불러왔습니다 (새로 추가 ${favs.size - before}개)`, 3000);
+    toast(`즐겨찾기 ${items.length}개를 불러왔습니다 (새로 추가 ${n}개)`, 3000);
   } catch { toast('즐겨찾기 백업 파일이 아닙니다', 2500); }
 };
 
