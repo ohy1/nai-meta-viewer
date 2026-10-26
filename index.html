@@ -1700,7 +1700,7 @@ function render() {
     badges.push('<span class="badge none">생성 정보 없음</span>');
     content += `<div class="notice"><b>AI 생성 정보를 찾지 못했습니다.</b>
       <ul><li>SNS, 메신저(카카오톡, 디스코드 등)에 올렸다 받은 이미지는 메타데이터가 지워지는 경우가 많습니다.</li>
-      <li>브라우저에서 "이미지 복사" 후 붙여넣은 경우에도 정보가 사라집니다. 원본 파일을 직접 열어 주세요.</li>
+      <li>브라우저에서 "이미지 복사" 후 붙여넣은 경우에도 정보가 사라질 수 있습니다. 원본 파일을 직접 열어 주세요.</li>
       <li>아래 원본 메타데이터에서 파일에 남아 있는 다른 정보를 확인할 수 있습니다.</li></ul></div>`;
   }
   if (r.attach) badges.splice(1, 0, `<span class="badge attb">📎 숨겨진 ${ATT_LABEL[r.attach.kind]}${r.attach.entries ? ` · 파일 ${r.attach.entries.filter(e => !zipJunk(e)).length}개` : ''}</span>`);
