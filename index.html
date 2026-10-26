@@ -1234,16 +1234,19 @@ async function attAction(ref, el) {
   } catch (err) { toast(`첨부 파일 처리 실패: ${err.message}`, 3000); }
 }
 
-function sigCard(sig) {
+function sigCard(sig, attach) {
   if (!sig) return '';
-  const stat = v => v === 'ok' ? '<span class="rstat ok">일치</span>NAI가 생성한 원본 그대로입니다'
+  const stat = v => v === 'ok' ? '<span class="rstat ok">일치</span>그림과 생성 정보가 NAI 원본 그대로입니다'
     : v === 'bad' ? '<span class="rstat bad">불일치</span>그림이나 생성 정보가 생성 이후에 바뀌었습니다'
     : '<span class="rstat">서명 없음</span>';
   const body = sig.status === 'na' ? `<p class="empty-note">${esc(sig.reason)}</p>`
     : `<table class="rtable"><tr><th>PNG 텍스트 정보</th><td>${stat(sig.file)}</td></tr><tr><th>숨겨진 정보 (알파)</th><td>${stat(sig.alpha)}</td></tr></table>
        <p class="empty-note">${sig.status === 'none' ? '서명이 들어 있지 않습니다. 서명 기능이 생기기 전 이미지이거나, 다른 도구가 메타데이터를 다시 쓴 경우입니다.'
          : '서명은 그림의 픽셀과 생성 정보 전체를 함께 보증합니다. 크기 변경, 다시 저장, 일부 브라우저의 이미지 복사, SNS 업로드처럼 픽셀이 조금이라도 바뀌면 불일치로 나옵니다.'}</p>`;
-  return `<section class="card"><div class="card-head"><h3>NAI 서명 검증</h3><span class="count">${SIG_TEXT[sig.status]}</span></div>${body}</section>`;
+  // 서명은 픽셀과 Comment만 보증: 이미지 끝 뒤에 붙인 데이터는 서명과 상관없이 붙일 수 있음
+  const outside = attach && sig.status === 'ok'
+    ? `<p class="empty-note"><span class="rstat bad">주의</span>서명은 그림과 생성 정보만 보증합니다. 이 파일에는 서명 범위 밖에 덧붙인 데이터(${esc(ATT_LABEL[attach.kind])} ${fmtBytes(attach.size)})가 있으며, 이 부분은 NAI가 만든 것이 아닙니다.</p>` : '';
+  return `<section class="card"><div class="card-head"><h3>NAI 서명 검증</h3><span class="count">${SIG_TEXT[sig.status]}</span></div>${body}${outside}</section>`;
 }
 function refsCard(g) {
   const r = g.refs;
@@ -1691,7 +1694,7 @@ function render() {
     content += charsSection(g);
     content += settingsCard(g);
     content += refsCard(g);
-    if (g.kind === 'nai') content += sigCard(r.sig);
+    if (g.kind === 'nai') content += sigCard(r.sig, r.attach);
     content += extraCard(g);
   } else {
     badges.push('<span class="badge none">생성 정보 없음</span>');
