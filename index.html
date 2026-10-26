@@ -1837,6 +1837,30 @@ function imageEndOffset(u8, format) {
     return -1;
   }
   if (format === 'WebP') { const n = dv.getUint32(4, true); return 8 + n + (n & 1); }
+  if (format === 'GIF') { // 블록을 따라가다 끝 표시(0x3B)에서 멈춤
+    let p = 13;
+    if (u8[10] & 0x80) p += 3 << ((u8[10] & 7) + 1); // 전체 색상표
+    const skipSub = q => { while (q < u8.length && u8[q]) q += u8[q] + 1; return q + 1; };
+    while (p < u8.length) {
+      const b = u8[p];
+      if (b === 0x3B) return p + 1;
+      if (b === 0x21) p = skipSub(p + 2);
+      else if (b === 0x2C) { let q = p + 10; if (u8[p + 9] & 0x80) q += 3 << ((u8[p + 9] & 7) + 1); p = skipSub(q + 1); }
+      else return -1;
+    }
+    return -1;
+  }
+  if (format === 'AVIF') { // 최상위 상자(box)들의 크기 합
+    let p = 0;
+    while (p + 8 <= u8.length) {
+      let size = dv.getUint32(p);
+      if (size === 1 && p + 16 <= u8.length) size = Number(dv.getBigUint64(p + 8));
+      else if (size === 0) return u8.length;
+      if (size < 8 || !/^[\x20-\x7e]{4}$/.test(ascii(u8, p + 4, 4))) return p;
+      p += size;
+    }
+    return p;
+  }
   return -1;
 }
 function findBytes(u8, sig, limit) {
